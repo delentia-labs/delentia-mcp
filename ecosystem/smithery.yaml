@@ -1,0 +1,20 @@
+# Smithery configuration for Delentia OS MCP Ecosystem
+# https://smithery.ai/docs/config
+
+name: delentia-mcp-ecosystem
+description: Enterprise Sovereign AI Operating System featuring FDIA Mathematical Security, RCT-7 Thinking, Delta Compression, and JITNA Swarm.
+version: 1.0.0
+author: Delentia Labs <founder@delentia.com>
+homepage: https://delentia.com
+repository: https://github.com/delentia-labs/delentia-mcp-ecosystem
+
+startCommand:
+  type: stdio
+  config:
+    command: npx
+    args:
+      - -y
+      - mcp-remote
+      - https://delentia-gateway-main-04f1c03.zuplo.site/mcp/fdia
+    env:
+      AUTH_TOKEN: ""
