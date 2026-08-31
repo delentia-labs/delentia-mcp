@@ -25,7 +25,8 @@
     "deploy:rct7": "npm --workspace=@delentia/mcp-rct7 run deploy",
     "deploy:delta": "npm --workspace=@delentia/mcp-delta run deploy",
     "deploy:jitna": "npm --workspace=@delentia/mcp-jitna run deploy",
-    "deploy:all": "npm run deploy:fdia && npm run deploy:rct7 && npm run deploy:delta && npm run deploy:jitna"
+    "deploy:all": "npm run deploy:fdia && npm run deploy:rct7 && npm run deploy:delta && npm run deploy:jitna",
+    "console": "node scripts/interactive-mcp.mjs"
   },
   "keywords": [
     "mcp",
