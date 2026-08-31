@@ -11,8 +11,10 @@ info:
     url: https://delentia.com
     email: architect@delentia.com
 servers:
+  - url: https://delentia-fdia-mcp.delentia.workers.dev
+    description: Live Cloudflare Edge Server (FDIA Security)
   - url: https://api.delentialabs.com
-    description: Production Enterprise Gateway (Zuplo + Cloudflare Edge)
+    description: Production Enterprise Gateway (Zuplo + Stripe)
   - url: http://localhost:8787
     description: Local Sandbox Environment
 

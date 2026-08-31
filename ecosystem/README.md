@@ -55,6 +55,8 @@
 ผู้ใช้งานหรือลูกค้าของคุณสามารถเชื่อมต่อเข้าสู่เซิร์ฟเวอร์ Delentia ได้อย่างง่ายดายผ่านสะพานเชื่อม `mcp-remote`:
 
 ### การตั้งค่าใน `claude_desktop_config.json` หรือ Cursor `mcp.json`:
+
+#### 1. การเชื่อมต่อตรงผ่าน Cloudflare Workers Edge (Direct Live URLs):
 ```json
 {
   "mcpServers": {
@@ -63,10 +65,10 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://api.delentialabs.com/mcp/fdia"
+        "https://delentia-fdia-mcp.delentia.workers.dev/mcp"
       ],
       "env": {
-        "AUTH_TOKEN": "sk_delentia_your_api_key_here"
+        "AUTH_TOKEN": "your_session_token_here"
       }
     },
     "delentia-rct7": {
@@ -74,10 +76,10 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://api.delentialabs.com/mcp/rct7"
+        "https://delentia-rct7-mcp.delentia.workers.dev/mcp"
       ],
       "env": {
-        "AUTH_TOKEN": "sk_delentia_your_api_key_here"
+        "AUTH_TOKEN": "your_session_token_here"
       }
     },
     "delentia-delta": {
@@ -85,10 +87,10 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://api.delentialabs.com/mcp/delta"
+        "https://delentia-delta-mcp.delentia.workers.dev/mcp"
       ],
       "env": {
-        "AUTH_TOKEN": "sk_delentia_your_api_key_here"
+        "AUTH_TOKEN": "your_session_token_here"
       }
     },
     "delentia-jitna": {
@@ -96,15 +98,19 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://api.delentialabs.com/mcp/jitna"
+        "https://delentia-jitna-mcp.delentia.workers.dev/mcp"
       ],
       "env": {
-        "AUTH_TOKEN": "sk_delentia_your_api_key_here"
+        "AUTH_TOKEN": "your_session_token_here"
       }
     }
   }
 }
 ```
+
+#### 2. การเชื่อมต่อผ่าน Commercial Gateway (Zuplo + Stripe 29 USD/เดือน):
+แทนที่ URL ด้วย `https://api.delentialabs.com/mcp/<server>` พร้อมแนบ `sk_delentia_...` API Key จาก Developer Portal
+
 
 ---
 
