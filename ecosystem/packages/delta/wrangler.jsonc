@@ -15,7 +15,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["DeltaSessionDO"]
+      "new_sqlite_classes": ["DeltaSessionDO"]
     }
   ],
   "vars": {

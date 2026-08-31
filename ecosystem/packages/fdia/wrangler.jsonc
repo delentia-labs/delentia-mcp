@@ -15,7 +15,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["FDIASessionDO"]
+      "new_sqlite_classes": ["FDIASessionDO"]
     }
   ],
   "vars": {

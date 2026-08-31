@@ -15,7 +15,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["RCT7SessionDO"]
+      "new_sqlite_classes": ["RCT7SessionDO"]
     }
   ],
   "vars": {

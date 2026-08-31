@@ -15,7 +15,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["JITNASessionDO"]
+      "new_sqlite_classes": ["JITNASessionDO"]
     }
   ],
   "vars": {
