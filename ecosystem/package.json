@@ -1,0 +1,40 @@
+{
+  "name": "delentia-mcp-ecosystem",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Delentia OS MCP Ecosystem — High-performance, Intent-Centric Enterprise MCP Servers",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run --workspace=@delentia/shared build",
+    "build:fdia": "npm run --workspace=@delentia/mcp-fdia build",
+    "build:rct7": "npm run --workspace=@delentia/mcp-rct7 build",
+    "build:delta": "npm run --workspace=@delentia/mcp-delta build",
+    "build:jitna": "npm run --workspace=@delentia/mcp-jitna build",
+    "build": "npm run build:shared && npm run build:fdia && npm run build:rct7 && npm run build:delta && npm run build:jitna",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/ecosystem.test.mjs",
+    "dev:fdia": "npm --workspace=@delentia/mcp-fdia run dev",
+    "dev:rct7": "npm --workspace=@delentia/mcp-rct7 run dev",
+    "dev:delta": "npm --workspace=@delentia/mcp-delta run dev",
+    "dev:jitna": "npm --workspace=@delentia/mcp-jitna run dev"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "delentia-os",
+    "fdia-security",
+    "rct7-thinking",
+    "delta-engine",
+    "jitna-orchestrator",
+    "cloudflare-workers"
+  ],
+  "author": "Ittirit Saengow (The Architect) - Delentia Labs",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^3.109.2"
+  }
+}

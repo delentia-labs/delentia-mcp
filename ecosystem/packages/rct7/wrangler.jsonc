@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delentia-rct7-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RCT7_SESSION_DO",
+        "class_name": "RCT7SessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["RCT7SessionDO"]
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SERVER_NAME": "Delentia RCT-7 Thinking MCP"
+  }
+}

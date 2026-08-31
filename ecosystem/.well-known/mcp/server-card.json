@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server-card.json",
+  "name": "Delentia OS MCP Ecosystem",
+  "version": "1.0.0",
+  "description": "Enterprise Intent-Centric MCP Ecosystem featuring FDIA Deterministic Security, Authentic RCT-7 Reverse Thinking, Delta Context Compression, and JITNA Swarm Orchestration.",
+  "vendor": {
+    "name": "Delentia Labs",
+    "url": "https://delentia.com",
+    "portalUrl": "https://portal.delentialabs.com"
+  },
+  "pricing": {
+    "model": "freemium",
+    "freeTier": "100 requests / month",
+    "proTier": "29 USD / month (10,000 requests)",
+    "currency": "USD"
+  },
+  "servers": [
+    {
+      "id": "delentia-fdia",
+      "name": "Delentia FDIA Security Gate",
+      "description": "Mathematical Deterministic Guardrail (F = D^I * A) that preempts adversarial tool invocations and ensures 100% human-in-the-loop auditability.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://api.delentialabs.com/mcp/fdia"
+      },
+      "tools": ["evaluate_fdia"]
+    },
+    {
+      "id": "delentia-rct7",
+      "name": "Delentia RCT-7 Thinking Engine",
+      "description": "7-Stage Reverse Component Thinking pipeline (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to eliminate hallucination.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://api.delentialabs.com/mcp/rct7"
+      },
+      "tools": ["rct_think"]
+    },
+    {
+      "id": "delentia-delta",
+      "name": "Delentia Delta Context Compressor",
+      "description": "State Differential compressor reducing context window token overhead by up to 74.2% to 91.5% while preserving semantic causality.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://api.delentialabs.com/mcp/delta"
+      },
+      "tools": ["compress_context"]
+    },
+    {
+      "id": "delentia-jitna",
+      "name": "Delentia JITNA Swarm Orchestrator",
+      "description": "Intent-driven multi-agent orchestrator dispatching JITNA packets across 1+4 Pillars LoRA (Router, Guardian, Executor, Scribe).",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://api.delentialabs.com/mcp/jitna"
+      },
+      "tools": ["orchestrate_swarm"]
+    }
+  ]
+}
