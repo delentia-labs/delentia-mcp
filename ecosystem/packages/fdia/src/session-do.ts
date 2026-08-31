@@ -1,19 +1,20 @@
-import type { FDIAEvaluationResult } from "@delentia/shared";
+import type { FDIAEvaluationResult, ArchitectCustomPolicy } from "@delentia/shared";
 
-/**
- * FDIASessionDO: Cloudflare Durable Object
- * Preserves user security session state, audit logs, and preemption counters across requests.
- */
 export class FDIASessionDO {
   private state: DurableObjectState;
-  private history: FDIAEvaluationResult[] = [];
+  private auditLogs: FDIAEvaluationResult[] = [];
+  private activePolicy: ArchitectCustomPolicy | null = null;
 
   constructor(state: DurableObjectState) {
     this.state = state;
     this.state.blockConcurrencyWhile(async () => {
-      const stored = await this.state.storage.get<FDIAEvaluationResult[]>("history");
-      if (stored) {
-        this.history = stored;
+      const storedLogs = await this.state.storage.get<FDIAEvaluationResult[]>("auditLogs");
+      if (storedLogs) {
+        this.auditLogs = storedLogs;
+      }
+      const storedPolicy = await this.state.storage.get<ArchitectCustomPolicy>("activePolicy");
+      if (storedPolicy) {
+        this.activePolicy = storedPolicy;
       }
     });
   }
@@ -21,21 +22,40 @@ export class FDIASessionDO {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    // Record an audit log
     if (request.method === "POST" && url.pathname === "/record") {
       const result: FDIAEvaluationResult = await request.json();
-      this.history.push(result);
-      // Keep last 100 audit events in durable storage
-      if (this.history.length > 100) {
-        this.history = this.history.slice(-100);
+      this.auditLogs.push(result);
+      if (this.auditLogs.length > 100) {
+        this.auditLogs = this.auditLogs.slice(-100);
       }
-      await this.state.storage.put("history", this.history);
-      return new Response(JSON.stringify({ recorded: true, totalEvents: this.history.length }), {
+      await this.state.storage.put("auditLogs", this.auditLogs);
+      return new Response(JSON.stringify({ recorded: true, count: this.auditLogs.length }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
+    // Set or update custom enterprise policy
+    if (request.method === "POST" && url.pathname === "/policy") {
+      const policy: ArchitectCustomPolicy = await request.json();
+      this.activePolicy = policy;
+      await this.state.storage.put("activePolicy", this.activePolicy);
+      return new Response(
+        JSON.stringify({ success: true, message: "Custom enterprise policy updated", policy: this.activePolicy }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Retrieve active policy
+    if (request.method === "GET" && url.pathname === "/policy") {
+      return new Response(JSON.stringify(this.activePolicy || { status: "using_system_defaults" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Retrieve audit history
     if (request.method === "GET" && url.pathname === "/history") {
-      return new Response(JSON.stringify(this.history), {
+      return new Response(JSON.stringify(this.auditLogs), {
         headers: { "Content-Type": "application/json" },
       });
     }

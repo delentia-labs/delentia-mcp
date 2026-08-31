@@ -1,8 +1,8 @@
 {
   "name": "delentia-mcp-ecosystem",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Delentia OS MCP Ecosystem — High-performance, Intent-Centric Enterprise MCP Servers",
+  "description": "Delentia OS MCP Ecosystem — High-performance, Intent-Centric Enterprise MCP Servers with Custom Policy Engine",
   "workspaces": [
     "packages/*"
   ],
@@ -15,6 +15,8 @@
     "build": "npm run build:shared && npm run build:fdia && npm run build:rct7 && npm run build:delta && npm run build:jitna",
     "typecheck": "tsc --noEmit",
     "test": "node tests/ecosystem.test.mjs",
+    "test:deep": "node tests/deep-ecosystem.test.mjs",
+    "test:all": "node tests/ecosystem.test.mjs && node tests/deep-ecosystem.test.mjs",
     "dev:fdia": "npm --workspace=@delentia/mcp-fdia run dev",
     "dev:rct7": "npm --workspace=@delentia/mcp-rct7 run dev",
     "dev:delta": "npm --workspace=@delentia/mcp-delta run dev",

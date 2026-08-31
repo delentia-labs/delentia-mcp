@@ -20,6 +20,57 @@ security:
   - ApiKeyAuth: []
 
 paths:
+  /policy:
+    post:
+      summary: Configure Enterprise Custom Policy for Parameter A
+      description: Sets or updates the active enterprise safety governance policy (Forbidden patterns, RBAC, Dual sign-off, Thresholds) stored in Durable Objects.
+      operationId: configureEnterprisePolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - policy_id
+                - policy_name
+              properties:
+                policy_id:
+                  type: string
+                  example: "corp_policy_strict"
+                policy_name:
+                  type: string
+                  example: "Strict Enterprise Governance"
+                blocked_action_patterns:
+                  type: array
+                  items:
+                    type: string
+                  example: ["*drop*", "*truncate*", "*wipe*", "*export_secrets*"]
+                allowed_roles:
+                  type: object
+                  example:
+                    admin: ["*"]
+                    developer: ["read_*", "write_code"]
+                    junior_dev: ["read_*"]
+                custom_safety_threshold:
+                  type: number
+                  example: 0.85
+                require_human_dual_signoff:
+                  type: array
+                  items:
+                    type: string
+                  example: ["deploy_prod", "rotate_master_key"]
+      responses:
+        "200":
+          description: Policy configured successfully
+    get:
+      summary: Get Active Enterprise Custom Policy
+      description: Retrieves the currently active governance rules applied to parameter A.
+      operationId: getActiveEnterprisePolicy
+      responses:
+        "200":
+          description: Active enterprise policy definition
+
   /mcp/fdia:
     post:
       summary: Delentia FDIA Security Evaluation Gate
