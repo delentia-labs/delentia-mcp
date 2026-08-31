@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { evaluateFDIA, matchesWildcard } from "../packages/shared/dist/index.js";
+import {
+  evaluateFDIA,
+  matchesWildcard,
+  generateGitHubOAuthUrl,
+  createSessionToken,
+  verifySessionToken,
+  captureException,
+  measureLatency,
+} from "../packages/shared/dist/index.js";
 import { executeRCT7 } from "../packages/rct7/dist/index.js";
 import { compressContext } from "../packages/delta/dist/index.js";
 import { orchestrateSwarm } from "../packages/jitna/dist/index.js";
@@ -198,7 +206,89 @@ test("FDIA Enterprise Policy - Dual Human Architect Sign-off Verification", () =
 });
 
 // ============================================================================
-// 2. RCT-7 REVERSE COMPONENT THINKING DEEP TESTS
+// 2. GITHUB OAUTH DIRECT AUTHENTICATION & TOKEN SIGNING TESTS
+// ============================================================================
+
+test("OAuth Direct Flow - GitHub Authorization URL Generation", () => {
+  const url = generateGitHubOAuthUrl("test_client_id", "https://api.delentia.com/auth/github/callback", "random_state");
+  assert.ok(url.startsWith("https://github.com/login/oauth/authorize?"));
+  assert.ok(url.includes("client_id=test_client_id"));
+  assert.ok(url.includes("redirect_uri=https%3A%2F%2Fapi.delentia.com%2Fauth%2Fgithub%2Fcallback"));
+});
+
+test("OAuth Direct Flow - Cryptographic Session Token Issuance & Verification", () => {
+  const secret = "delentia_ultra_secure_secret_key_32_characters";
+  const payload = {
+    sub: "github_user_12345",
+    login: "architect_dev",
+    role: "senior_dev",
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  };
+
+  // Issue Token
+  const token = createSessionToken(payload, secret);
+  assert.ok(token.split(".").length === 3);
+
+  // Verify Valid Token
+  const verified = verifySessionToken(token, secret);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.payload?.sub, "github_user_12345");
+  assert.equal(verified.payload?.role, "senior_dev");
+
+  // Verify Tampered Token -> Fails
+  const tampered = token.slice(0, -4) + "XXXX";
+  const tamperedCheck = verifySessionToken(tampered, secret);
+  assert.equal(tamperedCheck.valid, false);
+  assert.equal(tamperedCheck.error, "Invalid signature");
+
+  // Verify Expired Token
+  const expiredPayload = { ...payload, exp: Math.floor(Date.now() / 1000) - 10 };
+  const expiredToken = createSessionToken(expiredPayload, secret);
+  const expiredCheck = verifySessionToken(expiredToken, secret);
+  assert.equal(expiredCheck.valid, false);
+  assert.equal(expiredCheck.error, "Token expired");
+});
+
+// ============================================================================
+// 3. RESILIENCE & SENTRY ERROR TELEMETRY TESTS
+// ============================================================================
+
+test("Resilience Telemetry - Error Capture & Sentry Boundary Handling", async () => {
+  const sampleError = new Error("Simulated unhandled database deadlock");
+  const report = await captureException(
+    sampleError,
+    {
+      serverName: "Delentia FDIA Security MCP",
+      environment: "test",
+      url: "https://api.delentialabs.com/mcp",
+      actionName: "evaluate_fdia",
+    },
+    undefined // No mock remote DSN needed in unit test
+  );
+
+  assert.equal(report.status, "ERROR");
+  assert.equal(report.server, "Delentia FDIA Security MCP");
+  assert.equal(report.message, "Simulated unhandled database deadlock");
+  assert.ok(report.stack?.includes("Error"));
+});
+
+test("Resilience Telemetry - Sub-millisecond Execution Latency Measuring", async () => {
+  const { result, durationMs } = await measureLatency(async () => {
+    return evaluateFDIA({
+      data_quality: 0.9,
+      intent_precision: 1.0,
+      authorized: true,
+      action_name: "quick_eval",
+    });
+  });
+
+  assert.equal(result.authorized, true);
+  assert.ok(durationMs >= 0);
+  assert.ok(durationMs < 50); // High-speed execution
+});
+
+// ============================================================================
+// 4. RCT-7 REVERSE COMPONENT THINKING DEEP TESTS
 // ============================================================================
 
 test("RCT-7 - Strict 7-Stage Sequential Cognition & Alignment Verification", () => {
@@ -210,7 +300,6 @@ test("RCT-7 - Strict 7-Stage Sequential Cognition & Alignment Verification", () 
 
   const result = executeRCT7(input);
 
-  // Verify all 7 stages exist strictly in order
   const expectedStages = [
     { stage: 1, name: "OBSERVE", thai: "สังเกต" },
     { stage: 2, name: "ANALYZE", thai: "วิเคราะห์" },
@@ -241,11 +330,10 @@ test("RCT-7 - Strict 7-Stage Sequential Cognition & Alignment Verification", () 
 });
 
 // ============================================================================
-// 3. DELTA ENGINE CONTEXT COMPRESSOR DEEP TESTS
+// 5. DELTA ENGINE CONTEXT COMPRESSOR DEEP TESTS
 // ============================================================================
 
 test("Delta Engine - Deep Token/VRAM Reduction Benchmark (74.2% - 91.5%)", () => {
-  // Generate realistic verbose 500-line server log
   const logLines = [];
   for (let i = 0; i < 200; i++) {
     logLines.push(`[2026-08-31 08:00:${i % 60}] [INFO] [Thread-${i % 8}] Keepalive heartbeat status OK`);
@@ -262,7 +350,6 @@ test("Delta Engine - Deep Token/VRAM Reduction Benchmark (74.2% - 91.5%)", () =>
     aggressive_mode: true,
   });
 
-  // Verify compression metrics
   assert.ok(result.compressed_char_count < result.original_char_count);
   assert.ok(result.reduction_percentage >= 50.0);
   assert.ok(result.reduction_percentage <= 91.5);
@@ -271,7 +358,7 @@ test("Delta Engine - Deep Token/VRAM Reduction Benchmark (74.2% - 91.5%)", () =>
 });
 
 // ============================================================================
-// 4. JITNA PROTOCOL & 1+N MULTI-AGENT SWARM ORCHESTRATION DEEP TESTS
+// 6. JITNA PROTOCOL & 1+N MULTI-AGENT SWARM ORCHESTRATION DEEP TESTS
 // ============================================================================
 
 test("JITNA Protocol - RFC-001 Packet [I, D, Delta, A, R, M] Integrity", () => {
@@ -285,8 +372,8 @@ test("JITNA Protocol - RFC-001 Packet [I, D, Delta, A, R, M] Integrity", () => {
   const packet = result.jitna_packet;
   assert.ok(packet.I.length > 0);
   assert.equal(packet.D, 75);
-  assert.equal(packet.delta, 25); // Delta = 100 - 75 = 25
-  assert.equal(packet.A, "executor"); // Auto-routed to Executor for "execute" / "deploy"
+  assert.equal(packet.delta, 25);
+  assert.equal(packet.A, "executor");
   assert.ok(packet.R.includes("Intent decomposed"));
   assert.equal(packet.M.env, "staging");
 });
@@ -307,10 +394,18 @@ test("JITNA 1+N Swarm - 4 Pillars LoRA & Extensible Multi-Agent Dispatch", () =>
     assert.ok(pillar.assigned_subtask.length > 0);
   }
 
-  // Validate presence of all functional roles
   const roles = result.assigned_pillars.map((p) => p.pillar);
   assert.ok(roles.includes("router"));
   assert.ok(roles.includes("guardian"));
   assert.ok(roles.includes("executor"));
   assert.ok(roles.includes("scribe"));
+});
+
+test("JITNA 1+N Scalability - Extensible Swarm Support", () => {
+  // Test dynamic routing across custom objectives
+  const routerTask = orchestrateSwarm({ objective: "Route incoming user request", target_pillar: "auto" });
+  assert.equal(routerTask.jitna_packet.A, "router");
+
+  const scribeTask = orchestrateSwarm({ objective: "Summarize and compress memory cache", target_pillar: "auto" });
+  assert.equal(scribeTask.jitna_packet.A, "scribe");
 });

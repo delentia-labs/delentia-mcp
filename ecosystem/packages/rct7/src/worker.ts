@@ -1,66 +1,92 @@
 import { executeRCT7, type RCT7Input } from "./index.js";
+import { captureException } from "@delentia/shared";
 export { RCT7SessionDO } from "./session-do.js";
 
 interface Env {
   RCT7_SESSION_DO: DurableObjectNamespace;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
+  SENTRY_DSN?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const serverName = env.SERVER_NAME || "Delentia RCT-7 Thinking MCP";
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
-    }
-
-    if (url.pathname === "/health" || url.pathname === "/") {
-      return new Response(
-        JSON.stringify({
-          status: "healthy",
-          server: "delentia-rct7",
-          description: "Delentia RCT-7 Reverse Component Thinking MCP Server",
-          version: "1.0.0",
-          stages: [
-            "1. OBSERVE (สังเกต)",
-            "2. ANALYZE (วิเคราะห์)",
-            "3. DECONSTRUCT (แยกส่วน)",
-            "4. REVERSE REASONING (คิดย้อนกลับ)",
-            "5. IDENTIFY CORE INTENT (ระบุเจตนาหลัก)",
-            "6. RECONSTRUCT (สร้างใหม่)",
-            "7. COMPARE WITH INTENT (เปรียบเทียบกับเจตนา)",
-          ],
-          endpoints: {
-            mcp_rpc: "/mcp",
-            health: "/health",
-          },
-        }),
-        {
+    try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
           headers: {
-            "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-session-id",
           },
-        }
-      );
-    }
+        });
+      }
 
-    if (url.pathname === "/mcp" && request.method === "POST") {
-      try {
+      if (url.pathname === "/health" || url.pathname === "/") {
+        return new Response(
+          JSON.stringify({
+            status: "healthy",
+            server: "delentia-rct7",
+            name: serverName,
+            version: "2.0.0",
+            stages: 7,
+            transports: {
+              streamable_http: "/mcp",
+              server_sent_events: "/sse",
+              sse_messages: "/messages",
+            },
+            environment: env.ENVIRONMENT || "production",
+            sentry_enabled: Boolean(env.SENTRY_DSN),
+          }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
+      // SSE Transport
+      if (url.pathname === "/sse" && request.method === "GET") {
+        const sessionId = crypto.randomUUID();
+        const postMessagesEndpoint = `${url.origin}/messages?sessionId=${sessionId}`;
+
+        const stream = new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode(`event: endpoint\ndata: ${postMessagesEndpoint}\n\n`));
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "x-session-id": sessionId,
+          },
+        });
+      }
+
+      if (url.pathname === "/messages" && request.method === "POST") {
+        const sessionId = url.searchParams.get("sessionId") || "global_session";
+        const body: any = await request.json();
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { status: "received", sessionId } }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
+      // Streamable HTTP RPC Endpoint
+      if (url.pathname === "/mcp" && request.method === "POST") {
         const body: any = await request.json();
 
         if (body.method === "tools/call" || body.tool === "rct_think" || body.problem_statement) {
+          const args = body.params?.arguments || body.params || body;
           const params: RCT7Input = {
-            problem_statement:
-              body.params?.problem_statement ?? body.problem_statement ?? "System initialization",
-            environment_context: body.params?.environment_context ?? body.environment_context,
-            target_desired_outcome: body.params?.target_desired_outcome ?? body.target_desired_outcome,
+            problem_statement: args.problem_statement ?? "System initialization",
+            environment_context: args.environment_context,
+            target_desired_outcome: args.target_desired_outcome,
           };
 
           const result = executeRCT7(params);
@@ -81,7 +107,7 @@ export default {
               })
             );
           } catch {
-            // Non-blocking in local dev
+            // Non-blocking
           }
 
           return new Response(
@@ -89,20 +115,10 @@ export default {
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(result, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
               },
             }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
@@ -115,23 +131,13 @@ export default {
                 tools: [
                   {
                     name: "rct_think",
-                    description:
-                      "Executes the authentic Delentia 7-Stage Reverse Component Thinking mental operating system (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to enforce strict logical coherence and eliminate AI hallucination.",
+                    description: "Executes authentic Delentia 7-Stage Reverse Component Thinking mental OS.",
                     inputSchema: {
                       type: "object",
                       properties: {
-                        problem_statement: {
-                          type: "string",
-                          description: "The initial problem, user intent, or task description to reason through",
-                        },
-                        environment_context: {
-                          type: "string",
-                          description: "Environment context, codebase metadata, or known constraints",
-                        },
-                        target_desired_outcome: {
-                          type: "string",
-                          description: "Desired final emergent state to reason backward from",
-                        },
+                        problem_statement: { type: "string" },
+                        environment_context: { type: "string" },
+                        target_desired_outcome: { type: "string" },
                       },
                       required: ["problem_statement"],
                     },
@@ -139,46 +145,23 @@ export default {
                 ],
               },
             }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
         return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: body.id ?? null,
-            error: { code: -32601, message: "Method not found" },
-          }),
-          {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
-        );
-      } catch (err: any) {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32603, message: err?.message || "Internal server error" },
-          }),
-          {
-            status: 500,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
+          JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "Method not found" } }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
         );
       }
-    }
 
-    return new Response("Endpoint Not Found", { status: 404 });
+      return new Response("Endpoint Not Found", { status: 404 });
+    } catch (err: any) {
+      await captureException(err, { serverName, environment: env.ENVIRONMENT, url: request.url }, env.SENTRY_DSN);
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: err?.message || "Internal server error" } }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
   },
 };

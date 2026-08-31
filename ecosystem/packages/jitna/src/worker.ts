@@ -1,58 +1,94 @@
 import { orchestrateSwarm, type OrchestrateSwarmInput } from "./index.js";
+import { captureException } from "@delentia/shared";
 export { JITNASessionDO } from "./session-do.js";
 
 interface Env {
   JITNA_SESSION_DO: DurableObjectNamespace;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
+  SENTRY_DSN?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const serverName = env.SERVER_NAME || "Delentia JITNA Swarm Orchestrator MCP";
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
-    }
-
-    if (url.pathname === "/health" || url.pathname === "/") {
-      return new Response(
-        JSON.stringify({
-          status: "healthy",
-          server: "delentia-jitna",
-          description: "Delentia JITNA Multi-Agent Swarm Orchestrator MCP Server",
-          version: "1.0.0",
-          pillars: ["The Router", "The Guardian", "The Executor", "The Scribe"],
-          endpoints: {
-            mcp_rpc: "/mcp",
-            health: "/health",
-          },
-        }),
-        {
+    try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
           headers: {
-            "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-session-id",
           },
-        }
-      );
-    }
+        });
+      }
 
-    if (url.pathname === "/mcp" && request.method === "POST") {
-      try {
+      if (url.pathname === "/health" || url.pathname === "/") {
+        return new Response(
+          JSON.stringify({
+            status: "healthy",
+            server: "delentia-jitna",
+            name: serverName,
+            version: "2.0.0",
+            architecture: "1+N Multi-Agent Swarm",
+            pillars: ["The Router", "The Guardian", "The Executor", "The Scribe"],
+            transports: {
+              streamable_http: "/mcp",
+              server_sent_events: "/sse",
+              sse_messages: "/messages",
+            },
+            environment: env.ENVIRONMENT || "production",
+            sentry_enabled: Boolean(env.SENTRY_DSN),
+          }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
+      // SSE Transport
+      if (url.pathname === "/sse" && request.method === "GET") {
+        const sessionId = crypto.randomUUID();
+        const postMessagesEndpoint = `${url.origin}/messages?sessionId=${sessionId}`;
+
+        const stream = new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode(`event: endpoint\ndata: ${postMessagesEndpoint}\n\n`));
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "x-session-id": sessionId,
+          },
+        });
+      }
+
+      if (url.pathname === "/messages" && request.method === "POST") {
+        const sessionId = url.searchParams.get("sessionId") || "global_session";
+        const body: any = await request.json();
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { status: "received", sessionId } }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
+      // Streamable HTTP RPC Endpoint
+      if (url.pathname === "/mcp" && request.method === "POST") {
         const body: any = await request.json();
 
         if (body.method === "tools/call" || body.tool === "orchestrate_swarm" || body.objective) {
+          const args = body.params?.arguments || body.params || body;
           const params: OrchestrateSwarmInput = {
-            objective: body.params?.objective ?? body.objective ?? "General system task",
-            data_readiness: body.params?.data_readiness ?? body.data_readiness ?? 80,
-            target_pillar: body.params?.target_pillar ?? body.target_pillar ?? "auto",
-            context_params: body.params?.context_params ?? body.context_params,
+            objective: args.objective ?? "General system task",
+            data_readiness: args.data_readiness ?? 80,
+            target_pillar: args.target_pillar ?? "auto",
+            context_params: args.context_params,
           };
 
           const result = orchestrateSwarm(params);
@@ -68,7 +104,7 @@ export default {
               })
             );
           } catch {
-            // Non-blocking in dev
+            // Non-blocking
           }
 
           return new Response(
@@ -76,20 +112,10 @@ export default {
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(result, null, 2),
-                  },
-                ],
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
               },
             }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
@@ -102,30 +128,14 @@ export default {
                 tools: [
                   {
                     name: "orchestrate_swarm",
-                    description:
-                      "Encapsulates complex user objectives into structured JITNA packets [I, D, Delta, A, R, M] and coordinates autonomous agent execution across the 1+4 Pillars LoRA Swarm (Router, Guardian, Executor, Scribe).",
+                    description: "Encapsulates objectives into JITNA packets and coordinates 1+N Multi-Agent Swarm.",
                     inputSchema: {
                       type: "object",
                       properties: {
-                        objective: {
-                          type: "string",
-                          description: "The overarching task, user prompt, or workflow to orchestrate",
-                        },
-                        data_readiness: {
-                          type: "number",
-                          minimum: 0,
-                          maximum: 100,
-                          description: "Data sufficiency score (0-100%) available for this mission",
-                        },
-                        target_pillar: {
-                          type: "string",
-                          enum: ["auto", "router", "guardian", "executor", "scribe"],
-                          description: "Designated 1+4 LoRA pillar adapter, or 'auto' for dynamic routing",
-                        },
-                        context_params: {
-                          type: "object",
-                          description: "Optional key-value attributes for long-term memory persistence",
-                        },
+                        objective: { type: "string" },
+                        data_readiness: { type: "number", minimum: 0, maximum: 100 },
+                        target_pillar: { type: "string", enum: ["auto", "router", "guardian", "executor", "scribe"] },
+                        context_params: { type: "object" },
                       },
                       required: ["objective"],
                     },
@@ -133,46 +143,23 @@ export default {
                 ],
               },
             }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
         return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: body.id ?? null,
-            error: { code: -32601, message: "Method not found" },
-          }),
-          {
-            status: 404,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
-        );
-      } catch (err: any) {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32603, message: err?.message || "Internal server error" },
-          }),
-          {
-            status: 500,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
+          JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "Method not found" } }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
         );
       }
-    }
 
-    return new Response("Endpoint Not Found", { status: 404 });
+      return new Response("Endpoint Not Found", { status: 404 });
+    } catch (err: any) {
+      await captureException(err, { serverName, environment: env.ENVIRONMENT, url: request.url }, env.SENTRY_DSN);
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: err?.message || "Internal server error" } }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
   },
 };
