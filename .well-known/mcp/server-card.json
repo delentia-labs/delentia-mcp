@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server-card.json",
+  "name": "Delentia Sovereign AI Ecosystem",
+  "version": "2.0.0",
+  "description": "Unified All-in-One Sovereign AI Operating System MCP Server bundling all 4 Core Pillars: FDIA Security, RCT-7 Reasoning, Delta Compression, and JITNA Swarm Orchestration.",
+  "vendor": {
+    "name": "Delentia Labs",
+    "url": "https://delentia.com",
+    "portalUrl": "https://delentia-gateway-main-c7624a5.zuplo.site",
+    "contactEmail": "founder@delentia.com"
+  },
+  "pricing": {
+    "model": "freemium",
+    "freeTier": "500 requests / month",
+    "proTier": "29 USD / month (10,000 requests)",
+    "teamTier": "149 USD / month (100,000 requests)",
+    "enterpriseTier": "Custom / Contact Sales (Unlimited)",
+    "currency": "USD"
+  },
+  "servers": [
+    {
+      "id": "delentia-sovereign",
+      "name": "Delentia Sovereign AI Ecosystem",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://delentia-sovereign-mcp.delentia.workers.dev/mcp"
+      },
+      "tools": [
+        "evaluate_fdia",
+        "configure_policy",
+        "rct_think",
+        "compress_context",
+        "orchestrate_swarm"
+      ]
+    }
+  ]
+}

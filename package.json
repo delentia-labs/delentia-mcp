@@ -1,0 +1,35 @@
+{
+  "name": "delentia-mcp",
+  "version": "2.0.0",
+  "description": "Official Public Client & Remote Connector for Delentia Sovereign AI Operating System MCP Gateway",
+  "type": "module",
+  "main": "bin/cli.js",
+  "bin": {
+    "delentia-mcp": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-safety",
+    "reasoning",
+    "context-compression",
+    "multi-agent-systems",
+    "agentic-ai",
+    "guardrails",
+    "sovereign-ai",
+    "llm-security"
+  ],
+  "author": "Ittirit Saengow (Chief Architect) - Delentia Labs",
+  "license": "Apache-2.0",
+  "homepage": "https://delentia.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/delentia-labs/delentia-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/delentia-labs/delentia-mcp/issues"
+  }
+}

@@ -1,0 +1,19 @@
+# Smithery configuration for Delentia Sovereign MCP
+# https://smithery.ai/docs/config
+
+name: delentia-mcp
+description: Official Public Client & Remote Connector for Delentia Sovereign AI Operating System MCP Gateway.
+version: 2.0.0
+author: Ittirit Saengow (Chief Architect) - Delentia Labs <founder@delentia.com>
+homepage: https://delentia.com
+repository: https://github.com/delentia-labs/delentia-mcp
+
+startCommand:
+  type: stdio
+  config:
+    command: node
+    args:
+      - bin/cli.js
+    env:
+      DELENTIA_ENDPOINT: "https://delentia-sovereign-mcp.delentia.workers.dev/mcp"
+      DELENTIA_API_KEY: ""
