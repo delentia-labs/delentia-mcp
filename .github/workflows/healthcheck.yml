@@ -1,0 +1,30 @@
+name: Delentia Sovereign Edge Health Check
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Runs every 12 hours
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+
+jobs:
+  edge-health-check:
+    name: Verify Sovereign Edge Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Delentia Sovereign Edge Gateway
+        run: |
+          echo "Verifying live connection to https://delentia-sovereign-mcp.delentia.workers.dev/mcp..."
+          RESPONSE=$(curl -s -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+          
+          echo "Response summary: ${RESPONSE:0:180}..."
+          
+          if echo "$RESPONSE" | grep -q "evaluate_fdia" && echo "$RESPONSE" | grep -q "rct_think" && echo "$RESPONSE" | grep -q "compress_context"; then
+            echo "Delentia Sovereign AI Gateway is 100% HEALTHY and ACTIVE!"
+          else
+            echo "Delentia Sovereign AI Gateway health check failed."
+            exit 1
+          fi

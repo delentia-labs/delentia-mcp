@@ -7,6 +7,7 @@
 
 [![Release](https://img.shields.io/github/v/release/delentia-labs/delentia-mcp?color=brightgreen)](https://github.com/delentia-labs/delentia-mcp/releases)
 [![Smithery Quality](https://img.shields.io/badge/Smithery%20Quality-100%2F100-brightgreen)](https://smithery.ai/servers/delentia/delentia-sovereign)
+[![Edge Health Check](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
 [![Website](https://img.shields.io/badge/Website-delentia.com-emerald)](https://delentia.com)
