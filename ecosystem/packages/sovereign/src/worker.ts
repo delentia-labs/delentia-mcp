@@ -238,7 +238,7 @@ export default {
         }
 
         // ==========================================
-        // tools/list: Returns all 5 Tools
+        // tools/list: Returns all 5 Tools (Full Quality Score: Descriptions + outputSchema + Annotations)
         // ==========================================
         if (body.method === "tools/list") {
           return new Response(
@@ -253,15 +253,55 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        data_quality: { type: "number", minimum: 0.0, maximum: 1.0 },
-                        intent_precision: { type: "number", minimum: 1.0 },
-                        authorized: { type: "boolean" },
-                        action_name: { type: "string" },
-                        caller_role: { type: "string" },
-                        caller_context: { type: "string" },
-                        dual_signoff_confirmed: { type: "boolean" },
+                        data_quality: {
+                          type: "number",
+                          minimum: 0.0,
+                          maximum: 1.0,
+                          description: "D (Data Quality): Integrity and sufficiency coefficient of input data (0.0 to 1.0).",
+                        },
+                        intent_precision: {
+                          type: "number",
+                          minimum: 1.0,
+                          description: "I (Intent Precision): Precision exponent amplifying data towards authentic goal (>= 1.0).",
+                        },
+                        authorized: {
+                          type: "boolean",
+                          description: "A (Architect Authorization): Authorization token from the Chief Architect (true = gate open, false = gate closed).",
+                        },
+                        action_name: {
+                          type: "string",
+                          description: "Target tool or system API action identifier requested by the autonomous caller.",
+                        },
+                        caller_role: {
+                          type: "string",
+                          description: "RBAC role of the caller (e.g., developer, auditor, admin, agent).",
+                        },
+                        caller_context: {
+                          type: "string",
+                          description: "Optional textual metadata or telemetry context regarding the invocation origin.",
+                        },
+                        dual_signoff_confirmed: {
+                          type: "boolean",
+                          description: "Whether a verified second human officer has confirmed the operation.",
+                        },
                       },
                       required: ["data_quality", "action_name"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        future_score: { type: "number", description: "Computed mathematical FDIA score F = (D^I) * A." },
+                        verdict: { type: "string", description: "Deterministic decision: AUTHORIZED, SAFETY_THRESHOLD_VETO, or SECURITY_AUTH_DENIED." },
+                        authorized: { type: "boolean", description: "True if action is permitted to execute, false otherwise." },
+                        audit_digest: { type: "string", description: "SHA-256 tamper-proof cryptographic audit hash." },
+                        reason: { type: "string", description: "Natural language causal justification for the mathematical verdict." },
+                      },
+                      required: ["future_score", "verdict", "authorized", "audit_digest"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 1.0,
+                      readOnlyHint: true,
                     },
                   },
                   {
@@ -270,14 +310,48 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        policy_id: { type: "string" },
-                        policy_name: { type: "string" },
-                        blocked_action_patterns: { type: "array", items: { type: "string" } },
-                        allowed_roles: { type: "object" },
-                        custom_safety_threshold: { type: "number" },
-                        require_human_dual_signoff: { type: "array", items: { type: "string" } },
+                        policy_id: {
+                          type: "string",
+                          description: "Unique alphanumeric identifier for the enterprise policy configuration.",
+                        },
+                        policy_name: {
+                          type: "string",
+                          description: "Human-readable label or department designation for the policy rule.",
+                        },
+                        blocked_action_patterns: {
+                          type: "array",
+                          items: { type: "string" },
+                          description: "List of regex or prefix strings representing strictly forbidden tool/action calls.",
+                        },
+                        allowed_roles: {
+                          type: "object",
+                          description: "Mapping of role names to allowed action permissions.",
+                        },
+                        custom_safety_threshold: {
+                          type: "number",
+                          description: "Custom minimum future_score required for execution approval (default: 0.5000).",
+                        },
+                        require_human_dual_signoff: {
+                          type: "array",
+                          items: { type: "string" },
+                          description: "Array of critical action names that unconditionally require human dual signoff confirmation.",
+                        },
                       },
                       required: ["policy_id", "policy_name"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        status: { type: "string", description: "Update status (success or error)." },
+                        message: { type: "string", description: "Descriptive confirmation message." },
+                        policy: { type: "object", description: "The active normalized enterprise policy structure." },
+                      },
+                      required: ["status", "message"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.9,
+                      readOnlyHint: false,
                     },
                   },
                   {
@@ -286,11 +360,35 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        problem_statement: { type: "string" },
-                        environment_context: { type: "string" },
-                        target_desired_outcome: { type: "string" },
+                        problem_statement: {
+                          type: "string",
+                          description: "The core challenge, complex query, or dilemma requiring rigorous reverse deconstruction.",
+                        },
+                        environment_context: {
+                          type: "string",
+                          description: "Optional environmental telemetry, operational constraints, or target ecosystem parameters.",
+                        },
+                        target_desired_outcome: {
+                          type: "string",
+                          description: "Optional explicit definition of the end-state against which reverse reasoning is anchored.",
+                        },
                       },
                       required: ["problem_statement"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        problem_statement: { type: "string", description: "Original problem statement received." },
+                        stages: { type: "array", description: "Detailed 7-Stage cognitive outputs (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent)." },
+                        synthesized_solution: { type: "string", description: "Synthesized executive blueprint strictly causally aligned with core intent." },
+                        verified_alignment_score: { type: "number", description: "Causal alignment index (1.0000 = 100% verified, 0% hallucination risk)." },
+                      },
+                      required: ["problem_statement", "stages", "synthesized_solution", "verified_alignment_score"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.95,
+                      readOnlyHint: true,
                     },
                   },
                   {
@@ -299,11 +397,38 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        raw_context: { type: "string" },
-                        intent_focus: { type: "string" },
-                        aggressive_mode: { type: "boolean" },
+                        raw_context: {
+                          type: "string",
+                          description: "Full unstructured text, dialogue transcript, or JSON context requiring state compression.",
+                        },
+                        intent_focus: {
+                          type: "string",
+                          description: "Target focus anchor preserving only causal facts relevant to this objective.",
+                        },
+                        aggressive_mode: {
+                          type: "boolean",
+                          description: "Whether to strip all decorative conversational markers and preserve solely mathematical and functional deltas.",
+                        },
                       },
                       required: ["raw_context"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        original_char_count: { type: "number", description: "Character length of input context." },
+                        compressed_char_count: { type: "number", description: "Character length of compressed delta representation." },
+                        estimated_original_tokens: { type: "number", description: "Estimated token count of original context." },
+                        estimated_compressed_tokens: { type: "number", description: "Estimated token count of compressed state." },
+                        reduction_percentage: { type: "number", description: "Net token saving percentage achieved." },
+                        compressed_delta_text: { type: "string", description: "Causally compressed state delta text." },
+                        context_hash: { type: "string", description: "Cryptographic hash of the state transition." },
+                      },
+                      required: ["compressed_delta_text", "reduction_percentage", "context_hash"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.85,
+                      readOnlyHint: true,
                     },
                   },
                   {
@@ -312,12 +437,42 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        objective: { type: "string" },
-                        data_readiness: { type: "number", minimum: 0, maximum: 100 },
-                        target_pillar: { type: "string", enum: ["auto", "router", "guardian", "executor", "scribe"] },
-                        context_params: { type: "object" },
+                        objective: {
+                          type: "string",
+                          description: "High-level mission or task directive to be decomposed and orchestrated across agent pillars.",
+                        },
+                        data_readiness: {
+                          type: "number",
+                          minimum: 0,
+                          maximum: 100,
+                          description: "Percentage readiness of input data dependencies (0 to 100).",
+                        },
+                        target_pillar: {
+                          type: "string",
+                          enum: ["auto", "router", "guardian", "executor", "scribe"],
+                          description: "Optional specific LoRA adapter designation, or 'auto' for dynamic routing.",
+                        },
+                        context_params: {
+                          type: "object",
+                          description: "Key-value dictionary containing auxiliary runtime state or environmental variables.",
+                        },
                       },
                       required: ["objective"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        objective: { type: "string", description: "Original mission objective." },
+                        jitna_packet: { type: "object", description: "Decomposed JITNA v3 execution packet (I, D, delta, A, R, M)." },
+                        assigned_pillars: { type: "array", description: "Specialized pillar agent assignments with expected sub-tasks and switch latencies." },
+                        swarm_strategy: { type: "string", description: "Dynamic LoRA switching execution strategy." },
+                      },
+                      required: ["objective", "jitna_packet", "assigned_pillars"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.9,
+                      readOnlyHint: true,
                     },
                   },
                 ],
