@@ -203,15 +203,39 @@ export default {
                 tools: [
                   {
                     name: "rct_think",
-                    description: "Executes authentic Delentia 7-Stage Reverse Component Thinking mental OS.",
+                    description: "Executes authentic Delentia 7-Stage Reverse Component Thinking mental OS to eliminate hallucination.",
                     inputSchema: {
                       type: "object",
                       properties: {
-                        problem_statement: { type: "string" },
-                        environment_context: { type: "string" },
-                        target_desired_outcome: { type: "string" },
+                        problem_statement: {
+                          type: "string",
+                          description: "The core challenge, complex query, or dilemma requiring rigorous reverse deconstruction.",
+                        },
+                        environment_context: {
+                          type: "string",
+                          description: "Optional environmental telemetry, operational constraints, or target ecosystem parameters.",
+                        },
+                        target_desired_outcome: {
+                          type: "string",
+                          description: "Optional explicit definition of the end-state against which reverse reasoning is anchored.",
+                        },
                       },
                       required: ["problem_statement"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        problem_statement: { type: "string", description: "Original problem statement received." },
+                        stages: { type: "array", description: "Detailed 7-Stage cognitive outputs (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent)." },
+                        synthesized_solution: { type: "string", description: "Synthesized executive blueprint strictly causally aligned with core intent." },
+                        verified_alignment_score: { type: "number", description: "Causal alignment index (1.0000 = 100% verified, 0% hallucination risk)." },
+                      },
+                      required: ["problem_statement", "stages", "synthesized_solution", "verified_alignment_score"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.95,
+                      readOnlyHint: true,
                     },
                   },
                 ],

@@ -332,20 +332,59 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description:
-                      "Evaluates action requests through deterministic ZK-FDIA equation F = (D^I) * A and enterprise custom policy rules.",
+                    description: "Evaluates action requests through deterministic ZK-FDIA equation F = (D^I) * A and enterprise custom policy rules.",
                     inputSchema: {
                       type: "object",
                       properties: {
-                        data_quality: { type: "number", minimum: 0.0, maximum: 1.0 },
-                        intent_precision: { type: "number", minimum: 1.0 },
-                        authorized: { type: "boolean" },
-                        action_name: { type: "string" },
-                        caller_role: { type: "string" },
-                        caller_context: { type: "string" },
-                        dual_signoff_confirmed: { type: "boolean" },
+                        data_quality: {
+                          type: "number",
+                          minimum: 0.0,
+                          maximum: 1.0,
+                          description: "D (Data Quality): Integrity and sufficiency coefficient of input data (0.0 to 1.0).",
+                        },
+                        intent_precision: {
+                          type: "number",
+                          minimum: 1.0,
+                          description: "I (Intent Precision): Precision exponent amplifying data towards authentic goal (>= 1.0).",
+                        },
+                        authorized: {
+                          type: "boolean",
+                          description: "A (Architect Authorization): Authorization token from the Chief Architect (true = gate open, false = gate closed).",
+                        },
+                        action_name: {
+                          type: "string",
+                          description: "Target tool or system API action identifier requested by the autonomous caller.",
+                        },
+                        caller_role: {
+                          type: "string",
+                          description: "RBAC role of the caller (e.g., developer, auditor, admin, agent).",
+                        },
+                        caller_context: {
+                          type: "string",
+                          description: "Optional textual metadata or telemetry context regarding the invocation origin.",
+                        },
+                        dual_signoff_confirmed: {
+                          type: "boolean",
+                          description: "Whether a verified second human officer has confirmed the operation.",
+                        },
                       },
                       required: ["data_quality", "action_name"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        future_score: { type: "number", description: "Computed mathematical FDIA score F = (D^I) * A." },
+                        verdict: { type: "string", description: "Deterministic decision: AUTHORIZED, SAFETY_THRESHOLD_VETO, or SECURITY_AUTH_DENIED." },
+                        authorized: { type: "boolean", description: "True if action is permitted to execute, false otherwise." },
+                        audit_digest: { type: "string", description: "SHA-256 tamper-proof cryptographic audit hash." },
+                        reason: { type: "string", description: "Natural language causal justification for the mathematical verdict." },
+                      },
+                      required: ["future_score", "verdict", "authorized", "audit_digest"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 1.0,
+                      readOnlyHint: true,
                     },
                   },
                   {
@@ -354,14 +393,48 @@ export default {
                     inputSchema: {
                       type: "object",
                       properties: {
-                        policy_id: { type: "string" },
-                        policy_name: { type: "string" },
-                        blocked_action_patterns: { type: "array", items: { type: "string" } },
-                        allowed_roles: { type: "object" },
-                        custom_safety_threshold: { type: "number" },
-                        require_human_dual_signoff: { type: "array", items: { type: "string" } },
+                        policy_id: {
+                          type: "string",
+                          description: "Unique alphanumeric identifier for the enterprise policy configuration.",
+                        },
+                        policy_name: {
+                          type: "string",
+                          description: "Human-readable label or department designation for the policy rule.",
+                        },
+                        blocked_action_patterns: {
+                          type: "array",
+                          items: { type: "string" },
+                          description: "List of regex or prefix strings representing strictly forbidden tool/action calls.",
+                        },
+                        allowed_roles: {
+                          type: "object",
+                          description: "Mapping of role names to allowed action permissions.",
+                        },
+                        custom_safety_threshold: {
+                          type: "number",
+                          description: "Custom minimum future_score required for execution approval (default: 0.5000).",
+                        },
+                        require_human_dual_signoff: {
+                          type: "array",
+                          items: { type: "string" },
+                          description: "Array of critical action names that unconditionally require human dual signoff confirmation.",
+                        },
                       },
                       required: ["policy_id", "policy_name"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        status: { type: "string", description: "Update status (success or error)." },
+                        message: { type: "string", description: "Descriptive confirmation message." },
+                        policy: { type: "object", description: "The active normalized enterprise policy structure." },
+                      },
+                      required: ["status", "message"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.9,
+                      readOnlyHint: false,
                     },
                   },
                 ],

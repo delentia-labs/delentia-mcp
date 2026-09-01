@@ -200,16 +200,46 @@ export default {
                 tools: [
                   {
                     name: "orchestrate_swarm",
-                    description: "Encapsulates objectives into JITNA packets and coordinates 1+N Multi-Agent Swarm.",
+                    description: "Encapsulates objectives into JITNA packets and coordinates 1+4 Specialized Pillar Agents (Router, Guardian, Executor, Scribe).",
                     inputSchema: {
                       type: "object",
                       properties: {
-                        objective: { type: "string" },
-                        data_readiness: { type: "number", minimum: 0, maximum: 100 },
-                        target_pillar: { type: "string", enum: ["auto", "router", "guardian", "executor", "scribe"] },
-                        context_params: { type: "object" },
+                        objective: {
+                          type: "string",
+                          description: "High-level mission or task directive to be decomposed and orchestrated across agent pillars.",
+                        },
+                        data_readiness: {
+                          type: "number",
+                          minimum: 0,
+                          maximum: 100,
+                          description: "Percentage readiness of input data dependencies (0 to 100).",
+                        },
+                        target_pillar: {
+                          type: "string",
+                          enum: ["auto", "router", "guardian", "executor", "scribe"],
+                          description: "Optional specific LoRA adapter designation, or 'auto' for dynamic routing.",
+                        },
+                        context_params: {
+                          type: "object",
+                          description: "Key-value dictionary containing auxiliary runtime state or environmental variables.",
+                        },
                       },
                       required: ["objective"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        objective: { type: "string", description: "Original mission objective." },
+                        jitna_packet: { type: "object", description: "Decomposed JITNA v3 execution packet (I, D, delta, A, R, M)." },
+                        assigned_pillars: { type: "array", description: "Specialized pillar agent assignments with expected sub-tasks and switch latencies." },
+                        swarm_strategy: { type: "string", description: "Dynamic LoRA switching execution strategy." },
+                      },
+                      required: ["objective", "jitna_packet", "assigned_pillars"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.9,
+                      readOnlyHint: true,
                     },
                   },
                 ],
