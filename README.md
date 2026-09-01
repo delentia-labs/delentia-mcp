@@ -5,6 +5,7 @@
 # Delentia Sovereign AI Operating System
 ### Official Model Context Protocol (MCP) Public Client & Connector
 
+[![Release](https://img.shields.io/github/v/release/delentia-labs/delentia-mcp?color=brightgreen)](https://github.com/delentia-labs/delentia-mcp/releases)
 [![Smithery Quality](https://img.shields.io/badge/Smithery%20Quality-100%2F100-brightgreen)](https://smithery.ai/servers/delentia/delentia-sovereign)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
@@ -97,6 +98,15 @@ If your client supports remote HTTP MCP servers, point directly to:
 ```text
 Endpoint: https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 Transport: Streamable HTTP (JSON-RPC 2.0)
+```
+
+### Option D: Instant Terminal Verification (1-Line cURL)
+Test the live Sovereign MCP server directly in any terminal:
+
+```bash
+curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
 ```
 
 ---
