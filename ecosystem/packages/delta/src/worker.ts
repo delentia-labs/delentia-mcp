@@ -45,6 +45,33 @@ export default {
         );
       }
 
+      // 1.1 MCP Server Card Discovery
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
+        return new Response(
+          JSON.stringify({
+            $schema: "https://json.schemastore.org/mcp-server-card.json",
+            name: "Delentia Delta Context Compressor",
+            version: "2.0.0",
+            description: "Context Window token optimizer utilizing causal graph diffs to reduce token costs by 74.2% - 91.5% without loss of reasoning causality.",
+            vendor: {
+              name: "Delentia Labs",
+              url: "https://delentia.com",
+              portalUrl: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              contactEmail: "founder@delentia.com"
+            },
+            servers: [
+              {
+                id: "delentia-delta",
+                name: "Delentia Delta Context Compressor",
+                transport: { type: "streamable-http", url: `${url.origin}/mcp` },
+                tools: ["compress_context"]
+              }
+            ]
+          }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
       // SSE Transport
       if (url.pathname === "/sse" && request.method === "GET") {
         const sessionId = crypto.randomUUID();
@@ -80,6 +107,51 @@ export default {
       // Streamable HTTP RPC Endpoint
       if (url.pathname === "/mcp" && request.method === "POST") {
         const body: any = await request.json();
+
+        // MCP initialize handshake
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: {
+                  tools: { listChanged: false },
+                },
+                serverInfo: {
+                  name: "delentia-delta",
+                  version: "2.0.0",
+                },
+              },
+            }),
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
+
+        // MCP notifications/initialized
+        if (body.method === "notifications/initialized") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, result: {} }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+
+        // Optional MCP capabilities
+        if (body.method === "resources/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { resources: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "prompts/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { prompts: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "triggers/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { triggers: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
 
         if (body.method === "tools/call" || body.tool === "compress_context" || body.raw_context) {
           const args = body.params?.arguments || body.params || body;

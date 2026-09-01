@@ -68,6 +68,33 @@ export default {
         );
       }
 
+      // 1.1 MCP Server Card Discovery
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
+        return new Response(
+          JSON.stringify({
+            $schema: "https://json.schemastore.org/mcp-server-card.json",
+            name: "Delentia OS MCP Ecosystem",
+            version: "1.0.0",
+            description: "Enterprise Sovereign AI Operating System featuring FDIA Mathematical Security, RCT-7 Thinking, Delta Compression, and JITNA Swarm.",
+            vendor: {
+              name: "Delentia Labs",
+              url: "https://delentia.com",
+              portalUrl: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              contactEmail: "founder@delentia.com"
+            },
+            servers: [
+              {
+                id: "delentia-fdia",
+                name: "Delentia FDIA Security Gate",
+                transport: { type: "streamable-http", url: `${url.origin}/mcp` },
+                tools: ["evaluate_fdia", "configure_policy"]
+              }
+            ]
+          }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
       // 2. Direct GitHub OAuth Handlers
       if (url.pathname === "/auth/github/login") {
         const clientId = env.GITHUB_CLIENT_ID || "demo_github_client_id";
@@ -179,7 +206,33 @@ export default {
       if (url.pathname === "/mcp" && request.method === "POST") {
         const body: any = await request.json();
         const authHeader = request.headers.get("Authorization");
-        const hasValidAuth = Boolean(authHeader && authHeader.startsWith("Bearer "));
+        // MCP initialize handshake
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: {
+                  tools: { listChanged: false },
+                },
+                serverInfo: {
+                  name: "delentia-fdia",
+                  version: "2.0.0",
+                },
+              },
+            }),
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
+
+        // MCP notifications/initialized
+        if (body.method === "notifications/initialized") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, result: {} }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
 
         // Tool: configure_policy
         if (body.method === "tools/call" && body.params?.name === "configure_policy" || body.tool === "configure_policy") {
@@ -316,6 +369,23 @@ export default {
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
+        }
+
+        // Optional MCP capabilities: return empty arrays gracefully
+        if (body.method === "resources/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { resources: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "prompts/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { prompts: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "triggers/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { triggers: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
         }
 
         return new Response(

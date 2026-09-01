@@ -45,6 +45,33 @@ export default {
         );
       }
 
+      // 1.1 MCP Server Card Discovery
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
+        return new Response(
+          JSON.stringify({
+            $schema: "https://json.schemastore.org/mcp-server-card.json",
+            name: "Delentia RCT-7 Thinking Engine",
+            version: "2.0.0",
+            description: "Authentic 7-Stage Reverse Component Thinking mental operating system to eliminate LLM hallucination and ensure causal intent alignment.",
+            vendor: {
+              name: "Delentia Labs",
+              url: "https://delentia.com",
+              portalUrl: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              contactEmail: "founder@delentia.com"
+            },
+            servers: [
+              {
+                id: "delentia-rct7",
+                name: "Delentia RCT-7 Thinking Engine",
+                transport: { type: "streamable-http", url: `${url.origin}/mcp` },
+                tools: ["rct_think"]
+              }
+            ]
+          }),
+          { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+
       // SSE Transport
       if (url.pathname === "/sse" && request.method === "GET") {
         const sessionId = crypto.randomUUID();
@@ -80,6 +107,51 @@ export default {
       // Streamable HTTP RPC Endpoint
       if (url.pathname === "/mcp" && request.method === "POST") {
         const body: any = await request.json();
+
+        // MCP initialize handshake
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: {
+                  tools: { listChanged: false },
+                },
+                serverInfo: {
+                  name: "delentia-rct7",
+                  version: "2.0.0",
+                },
+              },
+            }),
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
+
+        // MCP notifications/initialized
+        if (body.method === "notifications/initialized") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, result: {} }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+
+        // Optional MCP capabilities
+        if (body.method === "resources/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { resources: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "prompts/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { prompts: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+        if (body.method === "triggers/list") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { triggers: [] } }), {
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
 
         if (body.method === "tools/call" || body.tool === "rct_think" || body.problem_statement) {
           const args = body.params?.arguments || body.params || body;
