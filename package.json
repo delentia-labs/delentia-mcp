@@ -15,7 +15,8 @@
     "bin",
     "assets",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "server.json"
   ],
   "publishConfig": {
     "access": "public"
