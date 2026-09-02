@@ -1,6 +1,7 @@
 {
   "name": "delentia-mcp",
   "version": "2.0.0",
+  "mcpName": "io.github.delentia-labs/delentia-mcp",
   "description": "Official Public Client & Remote Connector for Delentia Sovereign AI Operating System MCP Gateway",
   "type": "module",
   "main": "bin/cli.js",

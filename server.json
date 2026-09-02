@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.delentia-labs/delentia-mcp",
+  "title": "Delentia Sovereign AI Operating System",
+  "description": "Sovereign AI OS gateway with FDIA security, RCT-7 thinking, Delta compression & JITNA swarm.",
+  "repository": {
+    "url": "https://github.com/delentia-labs/delentia-mcp",
+    "source": "github"
+  },
+  "version": "2.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "delentia-mcp",
+      "version": "2.0.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
