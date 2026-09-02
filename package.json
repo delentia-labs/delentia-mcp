@@ -6,7 +6,7 @@
   "type": "module",
   "main": "bin/cli.js",
   "bin": {
-    "delentia-mcp": "./bin/cli.js"
+    "delentia-mcp": "bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js"
@@ -38,7 +38,7 @@
   "homepage": "https://delentia.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/delentia-labs/delentia-mcp.git"
+    "url": "git+https://github.com/delentia-labs/delentia-mcp.git"
   },
   "bugs": {
     "url": "https://github.com/delentia-labs/delentia-mcp/issues"
