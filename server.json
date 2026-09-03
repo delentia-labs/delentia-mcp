@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.delentia-labs/delentia-mcp",
   "title": "Delentia Sovereign AI Operating System",
-  "description": "Sovereign AI OS gateway with FDIA security, RCT-7 thinking, Delta compression & JITNA swarm.",
+  "description": "Stop rogue tool calls & hallucinations. Deterministic guardrails, reasoning & context compression.",
   "repository": {
     "url": "https://github.com/delentia-labs/delentia-mcp",
     "source": "github"

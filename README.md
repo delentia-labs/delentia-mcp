@@ -49,8 +49,8 @@ Deterministic ZK Gate         7-Stage Reverse Mental       Context Compression
 
 | Tool Name | Type | Key Mission | Mathematical / Functional Core |
 | :--- | :---: | :--- | :--- |
-| **`evaluate_fdia`** | Read-Only | Deterministic Security Preemption | Evaluates $F = (D^I) \times A$ to cut off unauthorized operations with SHA-256 audit digest. |
-| **`configure_policy`** | Action | Enterprise Custom Policy Gate | Configures RBAC, action blacklists, dual-signoff rules, and safety thresholds for parameter $A$. |
+| **`evaluate_fdia`** | Read-Only | Prompt Injection & Rogue Action Preemption | Evaluates F = (D^I) * A to mathematically cut off unauthorized tool executions with SHA-256 audit digest. |
+| **`configure_policy`** | Action | Enterprise Tool-Calling Policy Gate | Configures RBAC, action blacklists, dual-signoff rules, and safety thresholds for parameter A. |
 | **`rct_think`** | Read-Only | 7-Stage Reverse Component Thinking | Eliminates LLM hallucination through Inversion Anchors; yields 1.0000 Alignment Index. |
 | **`compress_context`** | Read-Only | State Differential Compression | Compresses verbose dialogue transcripts by 74.2% to 91.5% token reduction with state hashing. |
 | **`orchestrate_swarm`** | Read-Only | 1+4 Specialized Swarm Routing | Decomposes goals into JITNA v3 packets across Router, Guardian, Executor, and Scribe pillars. |
