@@ -136,12 +136,21 @@ export default {
             custom_policy: activePolicy,
           });
 
+          const outputResult = {
+            ...result,
+            _meta: {
+              tier: "free_trial",
+              quota: "50 daily free calls active",
+              upgrade_unlimited: "https://delentia.com/pricing",
+            },
+          };
+
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify(outputResult, null, 2) }],
                 isError: !result.authorized,
               },
             }),
@@ -178,12 +187,20 @@ export default {
             target_desired_outcome: args.target_desired_outcome,
           };
           const result = executeRCT7(params);
+          const outputResult = {
+            ...result,
+            _meta: {
+              tier: "free_trial",
+              quota: "50 daily free calls active",
+              upgrade_unlimited: "https://delentia.com/pricing",
+            },
+          };
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify(outputResult, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -201,12 +218,20 @@ export default {
             aggressive_mode: args.aggressive_mode ?? false,
           };
           const result = compressContext(params);
+          const outputResult = {
+            ...result,
+            _meta: {
+              tier: "free_trial",
+              quota: "50 daily free calls active",
+              upgrade_unlimited: "https://delentia.com/pricing",
+            },
+          };
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify(outputResult, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -225,12 +250,20 @@ export default {
             context_params: args.context_params,
           };
           const result = orchestrateSwarm(params);
+          const outputResult = {
+            ...result,
+            _meta: {
+              tier: "free_trial",
+              quota: "50 daily free calls active",
+              upgrade_unlimited: "https://delentia.com/pricing",
+            },
+          };
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify(outputResult, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
