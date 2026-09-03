@@ -10,10 +10,12 @@
 [![Edge Health Check](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
+[![Benchmarks](https://img.shields.io/badge/Benchmarks-100%25%20Deterministic-blueviolet)](./BENCHMARKS.md)
 [![Website](https://img.shields.io/badge/Website-delentia.com-emerald)](https://delentia.com)
 
 **The World's First Deterministic Sovereign AI Operating System Gateway.**  
-Bridging autonomous AI agents (Claude, Cursor, VS Code, Windsurf, Codex) to the Delentia Sovereign Edge Network.
+Bridging autonomous AI agents (Claude, Cursor, VS Code, Windsurf, Codex) to the Delentia Sovereign Edge Network.  
+📊 **[View Empirical Benchmarks & 30-Second Visual Proof](./BENCHMARKS.md)**
 
 ---
 
