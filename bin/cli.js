@@ -17,7 +17,6 @@ const apiKey = process.env.DELENTIA_API_KEY || "";
 
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout,
   terminal: false,
 });
 
@@ -42,6 +41,11 @@ rl.on("line", async (line) => {
       headers,
       body: JSON.stringify(jsonRpcRequest),
     });
+
+    // If the request was a notification (no id member), JSON-RPC 2.0 prohibits sending a response
+    if (jsonRpcRequest.id === undefined) {
+      return;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
