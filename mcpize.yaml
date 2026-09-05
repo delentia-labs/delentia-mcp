@@ -5,6 +5,7 @@ version: 1
 
 name: "delentia-mcp"
 slug: "delentia-mcp"
+description: "Stop rogue tool calls & AI hallucinations with deterministic mathematical guardrails (ZK-FDIA), RCT-7 reasoning, Delta context compression, and swarm orchestration."
 
 runtime: nodejs
 
