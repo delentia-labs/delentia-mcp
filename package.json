@@ -9,10 +9,12 @@
     "delentia-mcp": "bin/cli.js"
   },
   "scripts": {
+    "build": "echo Delentia build ready",
     "start": "node bin/cli.js"
   },
   "files": [
     "bin",
+    "dist",
     "assets",
     "README.md",
     "LICENSE",
