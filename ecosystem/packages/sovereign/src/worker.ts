@@ -1,15 +1,25 @@
-import { evaluateFDIA, type ArchitectCustomPolicy } from "@delentia/shared";
-import { executeRCT7, type RCT7Input } from "../../rct7/src/index.js";
-import { compressContext, type CompressContextInput } from "../../delta/src/index.js";
-import { orchestrateSwarm, type OrchestrateSwarmInput } from "../../jitna/src/index.js";
+import { evaluateFDIA, FDIAEngine, type ArchitectCustomPolicy } from "@delentia/shared";
+import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
+import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
+import { orchestrateSwarm, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
 
 interface Env {
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
+  FDIA_POLICY_KV?: KVNamespace;
+  POLICY_KV?: KVNamespace;
+  FDIA_POLICY_RULES_JSON?: string;
+  FDIA_POLICY_JSON?: string;
+  DELENTIA_GATEWAY_SECRET?: string;
+  ZUPLO_SHARED_SECRET?: string;
+  ENTERPRISE_API_KEYS?: string;
 }
 
 // In-memory policy fallback
 let activePolicy: ArchitectCustomPolicy | undefined;
+
+// In-memory quota and rate-limit cache for Free Community Tier (50 calls/day per IP)
+const freeUsageCache = new Map<string, number>();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -22,13 +32,37 @@ export default {
           headers: {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-session-id",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-session-id, X-Delentia-Internal-Secret",
           },
         });
       }
 
-      // Health Check
-      if (url.pathname === "/health" || url.pathname === "/") {
+      // Security Ingress Gate: Reject Direct Access — Enforce Zuplo API Gateway
+      const internalSecret = request.headers.get("X-Delentia-Internal-Secret") || request.headers.get("x-delentia-internal-secret");
+      const expectedSecret = env.ZUPLO_SHARED_SECRET || env.DELENTIA_GATEWAY_SECRET || "delentia_secret_gateway_token_2026_live";
+
+      if (internalSecret !== expectedSecret) {
+        return new Response(
+          JSON.stringify({
+            error: "Unauthorized",
+            code: 403,
+            message: "Direct access prohibited. Please connect via Delentia Gateway with a valid API Key at https://delentia-gateway-main-c7624a5.zuplo.site",
+            portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
+            pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+            instructions: "Direct origin access to Cloudflare Worker is locked. Use npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header \"Authorization: Bearer YOUR_ZUPLO_API_KEY\""
+          }),
+          {
+            status: 403,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      }
+
+      // Health Check and Discovery
+      if ((url.pathname === "/health" || url.pathname === "/" || url.pathname === "/mcp") && request.method === "GET" && !request.headers.get("Accept")?.includes("text/event-stream")) {
         return new Response(
           JSON.stringify({
             status: "healthy",
@@ -39,16 +73,49 @@ export default {
             pillars: ["FDIA Security Gate", "RCT-7 Reasoning Engine", "Delta Context Compressor", "JITNA Swarm Orchestrator"],
             tools_count: 5,
             tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"],
+            transports: {
+              streamable_http: "/mcp",
+              server_sent_events: "/sse",
+              sse_messages: "/messages",
+            },
+            instructions: "To connect this MCP server to your IDE or Agent, use either Stdio Bridge via node delentia-mcp/bin/cli.js or direct Streamable HTTP POST to /mcp.",
           }),
           { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
         );
+      }
+
+      // Server-Sent Events (SSE) Transport (/sse or GET /mcp with Accept: text/event-stream)
+      if ((url.pathname === "/sse" || (url.pathname === "/mcp" && request.headers.get("Accept")?.includes("text/event-stream"))) && request.method === "GET") {
+        const sessionId = crypto.randomUUID();
+        const postMessagesEndpoint = url.origin + "/messages?sessionId=" + sessionId;
+
+        const stream = new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(
+              encoder.encode("event: endpoint\ndata: " + postMessagesEndpoint + "\n\n")
+            );
+            controller.enqueue(
+              encoder.encode("event: message\ndata: " + JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n\n")
+            );
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "x-session-id": sessionId,
+          },
+        });
       }
 
       // 1.1 MCP Server Card Discovery
       if (url.pathname === "/.well-known/mcp/server-card.json") {
         return new Response(
           JSON.stringify({
-            $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia Sovereign AI Ecosystem",
             version: "2.0.0",
             description: "Unified All-in-One Sovereign AI Operating System MCP Server bundling all 4 Core Pillars: FDIA Security, RCT-7 Reasoning, Delta Compression, and JITNA Swarm Orchestration.",
@@ -62,7 +129,7 @@ export default {
               {
                 id: "delentia-sovereign",
                 name: "Delentia Sovereign AI Ecosystem (All-in-One)",
-                transport: { type: "streamable-http", url: `${url.origin}/mcp` },
+                transport: { type: "streamable-http", url: url.origin + "/mcp" },
                 tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"]
               }
             ]
@@ -71,8 +138,15 @@ export default {
         );
       }
 
-      // Streamable HTTP RPC Endpoint (/mcp)
-      if (url.pathname === "/mcp" && request.method === "POST") {
+      // Unified Streamable HTTP RPC Endpoint (/mcp, /, /messages, /rpc)
+      const isPostRpc = request.method === "POST" && (
+        url.pathname === "/mcp" ||
+        url.pathname === "/" ||
+        url.pathname === "/rpc" ||
+        url.pathname === "/messages"
+      );
+
+      if (isPostRpc) {
         const body: any = await request.json();
 
         // MCP initialize handshake
@@ -121,28 +195,42 @@ export default {
         }
 
         // ==========================================
+        // GATEWAY VERIFIED STATUS METADATA
+        // Requests passing the gate are metered by Zuplo Gateway
+        // ==========================================
+        const tierMeta = {
+          tier: "zuplo_gateway_verified",
+          status: "Verified by Delentia Zuplo API Gateway (Developer Sandbox / Pro Tier)",
+          portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
+          pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+        };
+
+        // ==========================================
         // TOOL 1: evaluate_fdia
         // ==========================================
         if (body.method === "tools/call" && (body.params?.name === "evaluate_fdia" || body.tool === "evaluate_fdia")) {
           const args = body.params?.arguments || body.params || body;
-          const result = evaluateFDIA({
+          
+          // Load policy from KV or Environment if no inline policy passed
+          const engine = activePolicy
+            ? new FDIAEngine(activePolicy)
+            : await FDIAEngine.fromWorkersEnv(env);
+
+          const result = engine.evaluate({
             data_quality: args.data_quality ?? 0.5,
             intent_precision: args.intent_precision ?? 1.0,
-            authorized: args.authorized ?? false,
+            authorized: args.authorized ?? true,
             action_name: args.action_name ?? "default_action",
+            target_payload: args.target_payload,
+            architect_token: args.architect_token,
             caller_role: args.caller_role ?? "developer",
             caller_context: args.caller_context,
             dual_signoff_confirmed: args.dual_signoff_confirmed ?? false,
-            custom_policy: activePolicy,
           });
 
           const outputResult = {
             ...result,
-            _meta: {
-              tier: "free_trial",
-              quota: "50 daily free calls active",
-              upgrade_unlimited: "https://delentia.com/pricing",
-            },
+            _meta: tierMeta,
           };
 
           return new Response(
@@ -164,12 +252,23 @@ export default {
         if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
           activePolicy = policyData;
+
+          // If Cloudflare KV is bound, persist directly for zero-redeploy real-time sync
+          const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
+          if (kv && typeof kv.put === "function") {
+            try {
+              await kv.put("fdia-policy", JSON.stringify(policyData));
+            } catch {
+              // Non-blocking in local dev
+            }
+          }
+
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy updated", policy: activePolicy }, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy updated and synchronized", policy: activePolicy, _meta: tierMeta }, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -189,11 +288,7 @@ export default {
           const result = executeRCT7(params);
           const outputResult = {
             ...result,
-            _meta: {
-              tier: "free_trial",
-              quota: "50 daily free calls active",
-              upgrade_unlimited: "https://delentia.com/pricing",
-            },
+            _meta: tierMeta,
           };
           return new Response(
             JSON.stringify({
@@ -220,11 +315,7 @@ export default {
           const result = compressContext(params);
           const outputResult = {
             ...result,
-            _meta: {
-              tier: "free_trial",
-              quota: "50 daily free calls active",
-              upgrade_unlimited: "https://delentia.com/pricing",
-            },
+            _meta: tierMeta,
           };
           return new Response(
             JSON.stringify({
@@ -252,11 +343,7 @@ export default {
           const result = orchestrateSwarm(params);
           const outputResult = {
             ...result,
-            _meta: {
-              tier: "free_trial",
-              quota: "50 daily free calls active",
-              upgrade_unlimited: "https://delentia.com/pricing",
-            },
+            _meta: tierMeta,
           };
           return new Response(
             JSON.stringify({

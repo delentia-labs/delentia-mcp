@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ENVIRONMENT": "production",
-    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP"
+    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP",
+    "ZUPLO_SHARED_SECRET": "delentia_secret_gateway_token_2026_live"
   }
 }
