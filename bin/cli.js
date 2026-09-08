@@ -3,17 +3,19 @@
 /**
  * Delentia Sovereign AI Operating System — Official MCP Bridge CLI
  * Connects standard MCP stdio clients (Claude Desktop, Cursor, VS Code, Windsurf)
- * directly to the Delentia Sovereign Cloudflare Edge Gateway.
+ * through the Delentia Zuplo API Gateway & Commercial Paywall.
  *
  * Developed by Delentia Labs
- * Chief Architect: Ittirit Saengow (The Architect)
+ * Chief Architect: Ittirit Saengow (Chief Architect / Delentia Labs)
+ * Strictly zero dollar signs enforced.
  */
 
 import readline from "readline";
 
-const DEFAULT_ENDPOINT = "https://delentia-sovereign-mcp.delentia.workers.dev/mcp";
+const DEFAULT_ENDPOINT = "https://delentia-gateway-main-c7624a5.zuplo.site/mcp";
 const targetEndpoint = process.env.DELENTIA_ENDPOINT || DEFAULT_ENDPOINT;
 const apiKey = process.env.DELENTIA_API_KEY || "";
+const internalSecret = process.env.DELENTIA_INTERNAL_SECRET || "";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -33,7 +35,11 @@ rl.on("line", async (line) => {
     };
 
     if (apiKey) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["Authorization"] = "Bearer " + apiKey;
+    }
+
+    if (internalSecret) {
+      headers["X-Delentia-Internal-Secret"] = internalSecret;
     }
 
     const response = await fetch(targetEndpoint, {
@@ -54,7 +60,7 @@ rl.on("line", async (line) => {
         id: jsonRpcRequest.id ?? null,
         error: {
           code: -32603,
-          message: `Delentia Gateway returned status ${response.status}: ${errorText}`,
+          message: "Delentia Gateway returned status " + response.status + ": " + errorText,
         },
       };
       process.stdout.write(JSON.stringify(errResponse) + "\n");
@@ -69,7 +75,7 @@ rl.on("line", async (line) => {
       id: null,
       error: {
         code: -32700,
-        message: `Client Parse Error: ${err?.message || "Unknown error"}`,
+        message: "Client Parse Error: " + (err?.message || "Unknown error"),
       },
     };
     process.stdout.write(JSON.stringify(parseErrorResponse) + "\n");

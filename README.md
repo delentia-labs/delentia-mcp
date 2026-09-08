@@ -59,11 +59,18 @@ Deterministic ZK Gate         7-Stage Reverse Mental       Context Compression
 
 ---
 
-## 🚀 Quickstart: 1-Click Client Setup
+## 🚀 Quickstart: Universal 1-Click Client Setup
 
-### Option A: Cursor IDE Configuration
-Add this entry to your Cursor `~/.cursor/mcp.json`:
+### Universal Remote Bridge (Zuplo Monetization Paywall & Gateway)
+Connect any MCP-compatible environment (Claude Desktop, Cursor, Antigravity IDE, VS Code, Windsurf) through the Delentia Zuplo Commercial API Gateway:
 
+```bash
+npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header "Authorization: Bearer YOUR_ZUPLO_API_KEY"
+```
+
+> **Developer Sandbox Free Tier**: Obtain your free API key (50 requests/month) instantly at the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing). Higher usage tiers (Pro at 29 USD/month, Team at 149 USD/month) are unlocked via the portal.
+
+### Option A: Cursor IDE Configuration (`~/.cursor/mcp.json`)
 ```json
 {
   "mcpServers": {
@@ -71,16 +78,17 @@ Add this entry to your Cursor `~/.cursor/mcp.json`:
       "command": "npx",
       "args": [
         "-y",
-        "delentia-mcp"
+        "mcp-remote",
+        "https://delentia-gateway-main-c7624a5.zuplo.site/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_ZUPLO_API_KEY"
       ]
     }
   }
 }
 ```
 
-### Option B: Claude Desktop Configuration
-Add this entry to your `claude_desktop_config.json`:
-
+### Option B: Claude Desktop Configuration (`claude_desktop_config.json`)
 ```json
 {
   "mcpServers": {
@@ -88,29 +96,50 @@ Add this entry to your `claude_desktop_config.json`:
       "command": "npx",
       "args": [
         "-y",
-        "delentia-mcp"
+        "mcp-remote",
+        "https://delentia-gateway-main-c7624a5.zuplo.site/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_ZUPLO_API_KEY"
       ]
     }
   }
 }
 ```
 
-### Option C: Direct Remote Cloud Connection (No Local Node required)
-If your client supports remote HTTP MCP servers, point directly to:
+### Option C: Direct Remote Cloud Connection (No Node.js Required)
+For MCP clients supporting direct network URLs (SSE / Streamable HTTP) with HTTP Authorization Header:
 
 ```text
-Endpoint: https://delentia-sovereign-mcp.delentia.workers.dev/mcp
-Transport: Streamable HTTP (JSON-RPC 2.0)
+Streamable HTTP Endpoint : https://delentia-gateway-main-c7624a5.zuplo.site/mcp
+Authorization Header     : Authorization: Bearer YOUR_ZUPLO_API_KEY
+Protocol Version         : 2024-11-05
+Developer Portal         : https://delentia-gateway-main-c7624a5.zuplo.site/pricing
 ```
 
 ### Option D: Instant Terminal Verification (1-Line cURL)
-Test the live Sovereign MCP server directly in any terminal:
+Test the live Sovereign MCP server through the Gateway:
 
 ```bash
-curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
+curl -X POST https://delentia-gateway-main-c7624a5.zuplo.site/mcp \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ZUPLO_API_KEY" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
 ```
+
+---
+
+## 🌐 Official Marketplace & Registry Listings
+
+| Marketplace / Directory | Status | Official Live Listing Link |
+| :--- | :---: | :--- |
+| **Smithery.ai** | **Published (100/100 Quality)** | [smithery.ai/servers/delentia/delentia-sovereign](https://smithery.ai/servers/delentia/delentia-sovereign) |
+| **Glama.ai** | **Published (Triple-A Verified)** | [glama.ai/mcp/servers/delentia-labs/delentia-mcp](https://glama.ai/mcp/servers/delentia-labs/delentia-mcp) |
+| **Official MCP Registry** | **Published** | [registry.modelcontextprotocol.io/?q=delentia](https://registry.modelcontextprotocol.io/?q=delentia) |
+| **MCPize** | **Published** | [mcpize.com/mcp/delentia-mcp](https://mcpize.com/mcp/delentia-mcp) |
+| **Zuplo Developer Portal** | **Published** | [delentia-gateway-main-c7624a5.zuplo.site/introduction](https://delentia-gateway-main-c7624a5.zuplo.site/introduction) |
+| **PulseMCP** | **Auto-Syncing** | Synced via Official MCP Registry Index |
+| **Awesome MCP Servers** | **PR Submitted (Pending Merge)** | [github.com/punkpeye/awesome-mcp-servers/pull/13430](https://github.com/punkpeye/awesome-mcp-servers/pull/13430) |
+| **MCP Market (CherryHQ)** | **Issue Submitted (Pending Review)** | [github.com/CherryHQ/mcpmarket/issues/51](https://github.com/CherryHQ/mcpmarket/issues/51) |
 
 ---
 
