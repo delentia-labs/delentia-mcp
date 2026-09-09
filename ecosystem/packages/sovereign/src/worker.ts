@@ -408,7 +408,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Evaluates action requests through deterministic ZK-FDIA equation F = (D^I) * A and enterprise custom policy rules.",
+                    description: "Evaluates security authorization and risk posture for proposed tool actions using mathematical safety verification equation F = (D^I) * A.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -416,32 +416,32 @@ export default {
                           type: "number",
                           minimum: 0.0,
                           maximum: 1.0,
-                          description: "D (Data Quality): Integrity and sufficiency coefficient of input data (0.0 to 1.0).",
+                          description: "D (Data Quality): Metric representing sufficiency and integrity of input data (0.0 to 1.0).",
                         },
                         intent_precision: {
                           type: "number",
                           minimum: 1.0,
-                          description: "I (Intent Precision): Precision exponent amplifying data towards authentic goal (>= 1.0).",
+                          description: "I (Intent Precision): Precision factor representing goal alignment (>= 1.0).",
                         },
                         authorized: {
                           type: "boolean",
-                          description: "A (Architect Authorization): Authorization token from the Chief Architect (true = gate open, false = gate closed).",
+                          description: "A (Authorization Status): Verified system authorization flag (true = allowed, false = rejected).",
                         },
                         action_name: {
                           type: "string",
-                          description: "Target tool or system API action identifier requested by the autonomous caller.",
+                          description: "Name of the target tool or operation to evaluate.",
                         },
                         caller_role: {
                           type: "string",
-                          description: "RBAC role of the caller (e.g., developer, auditor, admin, agent).",
+                          description: "Role of the requesting entity (e.g. developer, auditor, admin).",
                         },
                         caller_context: {
                           type: "string",
-                          description: "Optional textual metadata or telemetry context regarding the invocation origin.",
+                          description: "Context or metadata regarding the operation.",
                         },
                         dual_signoff_confirmed: {
                           type: "boolean",
-                          description: "Whether a verified second human officer has confirmed the operation.",
+                          description: "Whether secondary human verification has been completed.",
                         },
                       },
                       required: ["data_quality", "action_name"],
@@ -449,11 +449,11 @@ export default {
                     outputSchema: {
                       type: "object",
                       properties: {
-                        future_score: { type: "number", description: "Computed mathematical FDIA score F = (D^I) * A." },
-                        verdict: { type: "string", description: "Deterministic decision: AUTHORIZED, SAFETY_THRESHOLD_VETO, or SECURITY_AUTH_DENIED." },
+                        future_score: { type: "number", description: "Computed mathematical score F = (D^I) * A." },
+                        verdict: { type: "string", description: "Decision verdict: AUTHORIZED, SAFETY_THRESHOLD_VETO, or SECURITY_AUTH_DENIED." },
                         authorized: { type: "boolean", description: "True if action is permitted to execute, false otherwise." },
                         audit_digest: { type: "string", description: "SHA-256 tamper-proof cryptographic audit hash." },
-                        reason: { type: "string", description: "Natural language causal justification for the mathematical verdict." },
+                        reason: { type: "string", description: "Causal justification for the verification verdict." },
                       },
                       required: ["future_score", "verdict", "authorized", "audit_digest"],
                     },
@@ -465,35 +465,35 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Configures or updates Enterprise Custom Policy rules for parameter A.",
+                    description: "Configures or updates enterprise access control policies, action constraints, and safety thresholds.",
                     inputSchema: {
                       type: "object",
                       properties: {
                         policy_id: {
                           type: "string",
-                          description: "Unique alphanumeric identifier for the enterprise policy configuration.",
+                          description: "Unique alphanumeric identifier for the policy configuration.",
                         },
                         policy_name: {
                           type: "string",
-                          description: "Human-readable label or department designation for the policy rule.",
+                          description: "Descriptive name for the policy rule.",
                         },
                         blocked_action_patterns: {
                           type: "array",
                           items: { type: "string" },
-                          description: "List of regex or prefix strings representing strictly forbidden tool/action calls.",
+                          description: "List of forbidden action patterns or prefixes.",
                         },
                         allowed_roles: {
                           type: "object",
-                          description: "Mapping of role names to allowed action permissions.",
+                          description: "Mapping of role names to permitted actions.",
                         },
                         custom_safety_threshold: {
                           type: "number",
-                          description: "Custom minimum future_score required for execution approval (default: 0.5000).",
+                          description: "Minimum safety score threshold for approval (default: 0.5000).",
                         },
                         require_human_dual_signoff: {
                           type: "array",
                           items: { type: "string" },
-                          description: "Array of critical action names that unconditionally require human dual signoff confirmation.",
+                          description: "List of critical actions requiring secondary verification.",
                         },
                       },
                       required: ["policy_id", "policy_name"],
@@ -515,21 +515,21 @@ export default {
                   },
                   {
                     name: "rct_think",
-                    description: "Executes authentic Delentia 7-Stage Reverse Component Thinking mental OS to eliminate hallucination.",
+                    description: "Performs a structured 7-stage causal problem-solving analysis (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to solve complex technical tasks.",
                     inputSchema: {
                       type: "object",
                       properties: {
                         problem_statement: {
                           type: "string",
-                          description: "The core challenge, complex query, or dilemma requiring rigorous reverse deconstruction.",
+                          description: "The technical challenge, complex query, or dilemma requiring reverse causal deconstruction.",
                         },
                         environment_context: {
                           type: "string",
-                          description: "Optional environmental telemetry, operational constraints, or target ecosystem parameters.",
+                          description: "Optional operational constraints or target ecosystem parameters.",
                         },
                         target_desired_outcome: {
                           type: "string",
-                          description: "Optional explicit definition of the end-state against which reverse reasoning is anchored.",
+                          description: "Optional explicit definition of the end-state success criteria.",
                         },
                       },
                       required: ["problem_statement"],
@@ -539,8 +539,8 @@ export default {
                       properties: {
                         problem_statement: { type: "string", description: "Original problem statement received." },
                         stages: { type: "array", description: "Detailed 7-Stage cognitive outputs (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent)." },
-                        synthesized_solution: { type: "string", description: "Synthesized executive blueprint strictly causally aligned with core intent." },
-                        verified_alignment_score: { type: "number", description: "Causal alignment index (1.0000 = 100% verified, 0% hallucination risk)." },
+                        synthesized_solution: { type: "string", description: "Synthesized executive blueprint causally aligned with core intent." },
+                        verified_alignment_score: { type: "number", description: "Causal alignment index (1.0000 = 100% verified)." },
                       },
                       required: ["problem_statement", "stages", "synthesized_solution", "verified_alignment_score"],
                     },
@@ -552,21 +552,21 @@ export default {
                   },
                   {
                     name: "compress_context",
-                    description: "Compresses verbose conversation history by extracting state deltas (74.2% - 91.5% token reduction).",
+                    description: "Compresses verbose dialogue history or system logs by extracting state deltas to optimize context window efficiency.",
                     inputSchema: {
                       type: "object",
                       properties: {
                         raw_context: {
                           type: "string",
-                          description: "Full unstructured text, dialogue transcript, or JSON context requiring state compression.",
+                          description: "Context text, dialogue transcript, or JSON context requiring compression.",
                         },
                         intent_focus: {
                           type: "string",
-                          description: "Target focus anchor preserving only causal facts relevant to this objective.",
+                          description: "Specific objective determining which state facts to preserve.",
                         },
                         aggressive_mode: {
                           type: "boolean",
-                          description: "Whether to strip all decorative conversational markers and preserve solely mathematical and functional deltas.",
+                          description: "When true, strips conversational markers to retain only state changes.",
                         },
                       },
                       required: ["raw_context"],
@@ -592,13 +592,13 @@ export default {
                   },
                   {
                     name: "orchestrate_swarm",
-                    description: "Encapsulates objectives into JITNA packets and coordinates 1+4 Specialized Pillar Agents (Router, Guardian, Executor, Scribe).",
+                    description: "Coordinates multi-agent task distribution across specialized roles (Router, Guardian, Executor, Scribe).",
                     inputSchema: {
                       type: "object",
                       properties: {
                         objective: {
                           type: "string",
-                          description: "High-level mission or task directive to be decomposed and orchestrated across agent pillars.",
+                          description: "High-level mission or task directive to be decomposed and assigned.",
                         },
                         data_readiness: {
                           type: "number",
@@ -609,11 +609,11 @@ export default {
                         target_pillar: {
                           type: "string",
                           enum: ["auto", "router", "guardian", "executor", "scribe"],
-                          description: "Optional specific LoRA adapter designation, or 'auto' for dynamic routing.",
+                          description: "Optional specific role designation, or 'auto' for dynamic routing.",
                         },
                         context_params: {
                           type: "object",
-                          description: "Key-value dictionary containing auxiliary runtime state or environmental variables.",
+                          description: "Key-value dictionary containing runtime state or parameters.",
                         },
                       },
                       required: ["objective"],
@@ -624,7 +624,7 @@ export default {
                         objective: { type: "string", description: "Original mission objective." },
                         jitna_packet: { type: "object", description: "Decomposed JITNA v3 execution packet (I, D, delta, A, R, M)." },
                         assigned_pillars: { type: "array", description: "Specialized pillar agent assignments with expected sub-tasks and switch latencies." },
-                        swarm_strategy: { type: "string", description: "Dynamic LoRA switching execution strategy." },
+                        swarm_strategy: { type: "string", description: "Dynamic switching execution strategy." },
                       },
                       required: ["objective", "jitna_packet", "assigned_pillars"],
                     },
