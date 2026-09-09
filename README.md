@@ -91,6 +91,8 @@ npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 ```
 
 ### Option B: Claude Desktop Configuration (`claude_desktop_config.json`)
+
+#### 1. Free Community Sandbox (Zero-Config / 50 calls daily):
 ```json
 {
   "mcpServers": {
@@ -106,15 +108,18 @@ npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 }
 ```
 
-### Option C: Local Stdio Bridge (Fastest Local Sub-Millisecond IPC)
+#### 2. Enterprise Pro Tier (Unlimited SLA with Zuplo API Key):
 ```json
 {
   "mcpServers": {
     "delentia-sovereign": {
       "command": "node",
       "args": [
-        "C:/Users/whale/delentia/delentia-mcp/bin/cli.js"
-      ]
+        "./bin/cli.js"
+      ],
+      "env": {
+        "DELENTIA_API_KEY": "YOUR_ZUPLO_API_KEY"
+      }
     }
   }
 }
