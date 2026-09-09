@@ -37,30 +37,6 @@ export default {
         });
       }
 
-      // Security Ingress Gate: Reject Direct Access — Enforce Zuplo API Gateway
-      const internalSecret = request.headers.get("X-Delentia-Internal-Secret") || request.headers.get("x-delentia-internal-secret");
-      const expectedSecret = env.ZUPLO_SHARED_SECRET || env.DELENTIA_GATEWAY_SECRET || "delentia_secret_gateway_token_2026_live";
-
-      if (internalSecret !== expectedSecret) {
-        return new Response(
-          JSON.stringify({
-            error: "Unauthorized",
-            code: 403,
-            message: "Direct access prohibited. Please connect via Delentia Gateway with a valid API Key at https://delentia-gateway-main-c7624a5.zuplo.site",
-            portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
-            pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
-            instructions: "Direct origin access to Cloudflare Worker is locked. Use npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header \"Authorization: Bearer YOUR_ZUPLO_API_KEY\""
-          }),
-          {
-            status: 403,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
-        );
-      }
-
       // Health Check and Discovery
       if ((url.pathname === "/health" || url.pathname === "/" || url.pathname === "/mcp") && request.method === "GET" && !request.headers.get("Accept")?.includes("text/event-stream")) {
         return new Response(
@@ -195,15 +171,78 @@ export default {
         }
 
         // ==========================================
-        // GATEWAY VERIFIED STATUS METADATA
-        // Requests passing the gate are metered by Zuplo Gateway
+        // HYBRID MONETIZATION & QUOTA GATEWAY
+        // Discovery (initialize/tools/list) is open; tool execution is metered/paywalled
         // ==========================================
-        const tierMeta = {
-          tier: "zuplo_gateway_verified",
-          status: "Verified by Delentia Zuplo API Gateway (Developer Sandbox / Pro Tier)",
+        let tierMeta = {
+          tier: "free_sandbox",
+          quota: "50 daily free calls active",
           portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
           pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
         };
+
+        if (body.method === "tools/call") {
+          const authHeader = request.headers.get("Authorization") || "";
+          const internalSecret = request.headers.get("X-Delentia-Internal-Secret") || request.headers.get("x-delentia-internal-secret") || "";
+          const expectedSecret = env.ZUPLO_SHARED_SECRET || env.DELENTIA_GATEWAY_SECRET || "delentia_secret_gateway_token_2026_live";
+          const clientIp = request.headers.get("x-caller-id") || request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "community_user";
+
+          const isEnterprise = Boolean(
+            (internalSecret && internalSecret === expectedSecret) ||
+            authHeader.startsWith("Bearer zpka_") ||
+            (env.ENTERPRISE_API_KEYS && env.ENTERPRISE_API_KEYS.split(",").includes(authHeader.replace("Bearer ", "")))
+          );
+
+          if (isEnterprise) {
+            tierMeta = {
+              tier: "enterprise_unlimited",
+              quota: "unlimited_active (Enterprise Zuplo SLA 99.99%)",
+              portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+            };
+          } else {
+            const today = new Date().toISOString().slice(0, 10);
+            const quotaKey = "quota:" + today + ":" + clientIp;
+            let currentUsage = freeUsageCache.get(quotaKey) || 0;
+
+            if (currentUsage >= 50) {
+              return new Response(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: body.id ?? null,
+                  error: {
+                    code: -32002,
+                    message: "Free Developer Sandbox quota exceeded (50/50 calls reached). To unlock unlimited enterprise access and sub-millisecond SLA, subscribe at: https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+                    data: {
+                      tier: "free_sandbox_expired",
+                      limit: 50,
+                      reset_at_utc: today + "T23:59:59Z",
+                      commercial_portal: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+                    },
+                  },
+                }),
+                {
+                  status: 429,
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Retry-After": "86400",
+                  },
+                }
+              );
+            }
+
+            currentUsage++;
+            freeUsageCache.set(quotaKey, currentUsage);
+
+            tierMeta = {
+              tier: "free_sandbox",
+              quota: currentUsage + "/50 daily calls used (" + (50 - currentUsage) + " remaining)",
+              portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+            };
+          }
+        }
 
         // ==========================================
         // TOOL 1: evaluate_fdia
