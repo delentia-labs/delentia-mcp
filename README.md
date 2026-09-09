@@ -61,14 +61,18 @@ Deterministic ZK Gate         7-Stage Reverse Mental       Context Compression
 
 ## 🚀 Quickstart: Universal 1-Click Client Setup
 
-### Universal Remote Bridge (Zuplo Monetization Paywall & Gateway)
-Connect any MCP-compatible environment (Claude Desktop, Cursor, Antigravity IDE, VS Code, Windsurf) through the Delentia Zuplo Commercial API Gateway:
+### Universal Remote Bridge (Zero-Friction 1-Click Setup)
+Connect any MCP-compatible environment (Claude Desktop, Cursor, Antigravity IDE, VS Code, Windsurf) directly to the Delentia Sovereign Global Edge:
 
 ```bash
-npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header "Authorization: Bearer YOUR_ZUPLO_API_KEY"
+npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 ```
 
-> **Developer Sandbox Free Tier**: Obtain your free API key (50 requests/month) instantly at the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing). Higher usage tiers (Pro at 29 USD/month, Team at 149 USD/month) are unlocked via the portal.
+> **Developer Sandbox Free Tier**: Includes 50 daily free calls per caller IP out of the box with zero registration required!  
+> **Enterprise Unlimited SLA**: To unlock unlimited quota, sub-millisecond multi-region SLA, and audit compliance, pass your Zuplo API Key from the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing):
+> ```bash
+> npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp --header "Authorization: Bearer YOUR_ZUPLO_API_KEY"
+> ```
 
 ### Option A: Cursor IDE Configuration (`~/.cursor/mcp.json`)
 ```json
@@ -79,9 +83,7 @@ npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header 
       "args": [
         "-y",
         "mcp-remote",
-        "https://delentia-gateway-main-c7624a5.zuplo.site/mcp",
-        "--header",
-        "Authorization: Bearer YOUR_ZUPLO_API_KEY"
+        "https://delentia-sovereign-mcp.delentia.workers.dev/mcp"
       ]
     }
   }
@@ -97,32 +99,33 @@ npx -y mcp-remote https://delentia-gateway-main-c7624a5.zuplo.site/mcp --header 
       "args": [
         "-y",
         "mcp-remote",
-        "https://delentia-gateway-main-c7624a5.zuplo.site/mcp",
-        "--header",
-        "Authorization: Bearer YOUR_ZUPLO_API_KEY"
+        "https://delentia-sovereign-mcp.delentia.workers.dev/mcp"
       ]
     }
   }
 }
 ```
 
-### Option C: Direct Remote Cloud Connection (No Node.js Required)
-For MCP clients supporting direct network URLs (SSE / Streamable HTTP) with HTTP Authorization Header:
-
-```text
-Streamable HTTP Endpoint : https://delentia-gateway-main-c7624a5.zuplo.site/mcp
-Authorization Header     : Authorization: Bearer YOUR_ZUPLO_API_KEY
-Protocol Version         : 2024-11-05
-Developer Portal         : https://delentia-gateway-main-c7624a5.zuplo.site/pricing
+### Option C: Local Stdio Bridge (Fastest Local Sub-Millisecond IPC)
+```json
+{
+  "mcpServers": {
+    "delentia-sovereign": {
+      "command": "node",
+      "args": [
+        "C:/Users/whale/delentia/delentia-mcp/bin/cli.js"
+      ]
+    }
+  }
+}
 ```
 
 ### Option D: Instant Terminal Verification (1-Line cURL)
-Test the live Sovereign MCP server through the Gateway:
+Test the live Sovereign MCP server directly in any terminal:
 
 ```bash
-curl -X POST https://delentia-gateway-main-c7624a5.zuplo.site/mcp \
+curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_ZUPLO_API_KEY" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
 ```
 

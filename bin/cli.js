@@ -12,7 +12,7 @@
 
 import readline from "readline";
 
-const DEFAULT_ENDPOINT = "https://delentia-gateway-main-c7624a5.zuplo.site/mcp";
+const DEFAULT_ENDPOINT = "https://delentia-sovereign-mcp.delentia.workers.dev/mcp";
 const targetEndpoint = process.env.DELENTIA_ENDPOINT || DEFAULT_ENDPOINT;
 const apiKey = process.env.DELENTIA_API_KEY || "";
 const internalSecret = process.env.DELENTIA_INTERNAL_SECRET || "";
