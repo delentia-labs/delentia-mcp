@@ -13,8 +13,27 @@
 import readline from "readline";
 
 const DEFAULT_ENDPOINT = "https://delentia-sovereign-mcp.delentia.workers.dev/mcp";
-const targetEndpoint = process.env.DELENTIA_ENDPOINT || DEFAULT_ENDPOINT;
-const apiKey = process.env.DELENTIA_API_KEY || "";
+
+// Parse CLI flags and environment variables
+const args = process.argv.slice(2);
+let cliEndpoint = "";
+let cliApiKey = "";
+
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === "--key" || arg === "--api-key" || arg === "-k") {
+    cliApiKey = args[i + 1] || "";
+    i++;
+  } else if (arg === "--endpoint" || arg === "-e") {
+    cliEndpoint = args[i + 1] || "";
+    i++;
+  } else if (arg.startsWith("https://") || arg.startsWith("http://")) {
+    cliEndpoint = arg;
+  }
+}
+
+const targetEndpoint = cliEndpoint || process.env.DELENTIA_ENDPOINT || DEFAULT_ENDPOINT;
+const apiKey = cliApiKey || process.env.DELENTIA_API_KEY || process.env.ZUPLO_API_KEY || "";
 const internalSecret = process.env.DELENTIA_INTERNAL_SECRET || "";
 
 const rl = readline.createInterface({
