@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/mcp-server-card.json",
   "name": "Delentia Sovereign AI Ecosystem",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Unified All-in-One Sovereign AI Operating System MCP Server bundling all 4 Core Pillars: FDIA Security, RCT-7 Reasoning, Delta Compression, and JITNA Swarm Orchestration.",
   "vendor": {
     "name": "Delentia Labs",
