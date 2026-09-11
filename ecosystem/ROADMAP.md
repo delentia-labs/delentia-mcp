@@ -19,6 +19,21 @@ this roadmap is fixing).
 - [x] Added CI (`.github/workflows/ci.yml`) — build + typecheck + full test suite on every PR/push to `main`. Previously none existed.
 - [x] Added 10+ regression tests covering all of the above; fixed 3 stale test assertions that encoded old buggy/templated behavior as "correct".
 
+## Now — Delta Engine: the gap between "compress one blob" and "remember across a session"
+
+Found during a 2026-09-11 review requested specifically because token
+compression is a plausible strongest sales angle: **`compress_context` is
+completely stateless across calls today.** Every call re-compresses whatever
+`raw_context` the caller pastes in; there is no mechanism that remembers what
+was already sent in a *previous* call and returns only the true delta. The
+"session memory" idea (dedup a whole session's worth of turns, not just one
+blob) is not implemented, even though the infrastructure to support it is
+half-built:
+
+- [ ] **Real bug**: all 4 pillar workers (`fdia`, `rct7`, `delta`, `jitna`) key their Durable Object with a hardcoded literal name (`idFromName("global_delta_session")` etc, see `packages/*/src/worker.ts`) — every caller across the entire public endpoint shares **one single object**. For `delta`, this means compression stats silently accumulate across all users mixed together. For `fdia`, this is more serious: `configure_policy` on the standalone `fdia` worker writes to this same global object, so **one caller's policy change can affect every other caller's `evaluate_fdia` results** on the shared public endpoint. Worth a deliberate decision: is a single shared policy intentional for the free tier (with isolation expected only for dedicated enterprise deployments), or does this need real per-caller session scoping?
+- [ ] `packages/delta/src/session-do.ts`'s `accumulatedDeltas: string[]` field is defined but never written to or read from anywhere — dead code suggesting the original design intended more than what shipped.
+- [ ] To build real cross-session delta memory: `compress_context` would need (a) a `session_id` input parameter (none exists in the tool schema today), (b) to store the last-seen `raw_context` (or its line-set) per session, and (c) to diff the new call's `raw_context` against that stored state and return only genuinely new/changed lines — not re-run the same single-blob dedup on the whole thing every time. This is real, well-scoped feature work, not a quick fix — estimate as its own milestone, not bundled into an integrity pass.
+
 ## Now — Remaining integrity fixes
 
 - [ ] Resolve the `sovereign` (in-memory/KV) vs `fdia` standalone (Durable Object) state-storage inconsistency for `configure_policy` — pick one strategy or document why both are intentional
