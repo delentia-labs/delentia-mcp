@@ -78,8 +78,24 @@ against some fixed number.
 - Purely lexical — synonyms, paraphrases, and non-English/non-Thai phrasing beyond the tokenizer's ranges are not credited.
 - `problem_specificity` rewards verbosity, not clarity — a long vague statement scores the same as a long precise one.
 - No cross-request memory or actual verification against ground truth; this cannot detect hallucination in the *content* of the 7 stage outputs, only in whether the request itself was well-formed.
-- All 7 stage texts besides stage 7 remain templated prose (see `packages/rct7/src/index.ts`) — this spec covers only the numeric score, not stage-by-stage content generation.
+- Stages 1-6 (see below) are now also data-driven, but via shallow regex/keyword heuristics, not real language understanding — a sentence splitter, a conjunction-based clause splitter, a fixed 4-category failure-keyword taxonomy, and shared-vocabulary keyword extraction. None of these "understand" the request; they report structural properties of the text.
+
+## Stages 1-6: what became data-driven on 2026-09-11
+
+Previously, stages 1-6 were fixed prose that never changed regardless of input (only stage 7's score varied). All 6 now compute real, input-dependent output:
+
+| Stage | Real signal computed | Function |
+|---|---|---|
+| 1. OBSERVE | Splits `problem_statement` + `environment_context` into sentence/clause units on `.`/`!`/`?`/`;`/newlines (period-splitting skips mid-word periods like "Node.js") and reports the actual count and text of each | `splitSentences` |
+| 2. ANALYZE | Jaccard lexical overlap between `environment_context` and `problem_statement` — reports the real ratio, or explicitly says no context was supplied | reuses `jaccardSimilarity` |
+| 3. DECONSTRUCT | Splits `problem_statement` into sub-tasks on commas/semicolons/conjunctions ("and", "then", "while", "after", "before", "so that") | `extractSubtasks` |
+| 4. REVERSE REASONING | Matches `problem_statement` + target text against a fixed 4-category keyword taxonomy (`security`, `resource`, `state`, `data_quality`) — reports only categories that actually matched, not a fixed count | `detectFailureCategories` |
+| 5. IDENTIFY CORE INTENT | Extracts content words from `problem_statement` that also appear in `target_desired_outcome` (or falls back to the first content words of `problem_statement` alone) | `extractCoreIntentTerms` |
+| 6. RECONSTRUCT | Orders the Stage 3 sub-tasks against the Stage 5 core-intent terms into an explicit numbered blueprint, referencing any Stage 4 failure categories as mitigations to address | inline in `executeRCT7` |
+
+All three new extraction functions (`extractSubtasks`, `detectFailureCategories`, `extractCoreIntentTerms`) are exported from `packages/rct7/src/index.ts` and covered by a dedicated regression test in `tests/ecosystem.test.mjs` ("RCT-7 - all 7 stages are data-driven, not fixed templates") asserting that two different inputs produce different output on every one of the 6 stages, plus a specific regression test for the "Node.js" mid-word-period bug caught during manual verification.
 
 ## Change log
 
-- 2026-09-11 — Initial spec. Replaces the previous hardcoded `verified_alignment_score = 1.0`.
+- 2026-09-11 — Initial spec (stage 7 score only). Replaces the previous hardcoded `verified_alignment_score = 1.0`.
+- 2026-09-11 — Stages 1-6 made data-driven (see table above). Replaces the previous fixed prose, including a hardcoded "3 critical failure paths" claim at Stage 4 that no longer reflects a fixed number.

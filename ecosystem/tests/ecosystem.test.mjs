@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 // Dynamic import of compiled or source modules
 import { evaluateFDIA } from "../packages/shared/dist/index.js";
-import { executeRCT7, computeAlignmentScore } from "../packages/rct7/dist/index.js";
+import { executeRCT7, computeAlignmentScore, extractSubtasks, detectFailureCategories, extractCoreIntentTerms } from "../packages/rct7/dist/index.js";
 import { compressContext } from "../packages/delta/dist/index.js";
 import { orchestrateSwarm } from "../packages/jitna/dist/index.js";
 
@@ -131,6 +131,54 @@ test("RCT-7 Alignment Score - varies with input and is deterministic", () => {
     target_desired_outcome: "Ship a mobile app redesign",
   });
   assert.ok(misaligned.alignment_breakdown.lexical_alignment === 0);
+});
+
+test("RCT-7 - all 7 stages are data-driven, not fixed templates (regression)", () => {
+  // Previously: stages 1-6 were fixed prose strings that never changed
+  // regardless of input. Two different inputs must now produce different
+  // text for every stage except where the input genuinely gives no signal.
+  const a = executeRCT7({
+    problem_statement: "Fix the login timeout error, then add rate limiting, and validate user credentials",
+    environment_context: "Node.js backend with Redis session store, login timeout occurring after 30s",
+    target_desired_outcome: "Login completes reliably without timeout and credentials are validated securely",
+  });
+  const b = executeRCT7({
+    problem_statement: "Migrate the billing database to a new region",
+    environment_context: "PostgreSQL 14, multi-tenant, zero-downtime requirement",
+    target_desired_outcome: "Billing database fully migrated with zero data loss and zero downtime",
+  });
+
+  for (let i = 0; i < 6; i++) {
+    assert.notEqual(a.stages[i].output, b.stages[i].output, `stage ${i + 1} (${a.stages[i].name}) output must differ between distinct inputs`);
+  }
+
+  // Stage 1 (OBSERVE): sentence splitting must not break on mid-word periods
+  // like "Node.js" — this was a real bug caught during manual testing.
+  assert.ok(a.stages[0].output.includes("Node.js"), "OBSERVE must not split 'Node.js' into 'Node' + 'js'");
+
+  // Stage 3 (DECONSTRUCT): the 3-clause problem statement must produce 3 sub-tasks.
+  const subtasks = extractSubtasks(a.problem_statement);
+  assert.equal(subtasks.length, 3);
+  assert.deepEqual(subtasks, [
+    "Fix the login timeout error",
+    "add rate limiting",
+    "validate user credentials",
+  ]);
+
+  // Stage 4 (REVERSE REASONING): a login/credentials problem should trigger
+  // the "security" failure category by keyword match; an unrelated problem
+  // should trigger none.
+  const securityHit = detectFailureCategories("validate user credentials against stolen tokens", "");
+  assert.ok(securityHit.includes("security"));
+  const noHit = detectFailureCategories("rename the button label", "update the button color");
+  assert.deepEqual(noHit, []);
+
+  // Stage 5 (IDENTIFY CORE INTENT): terms shared between problem and target
+  // should be extracted; with no target, falls back to problem content words.
+  const shared = extractCoreIntentTerms("reduce checkout latency", "checkout latency under 200ms");
+  assert.ok(shared.includes("checkout") && shared.includes("latency"));
+  const fallback = extractCoreIntentTerms("reduce checkout latency");
+  assert.ok(fallback.length > 0);
 });
 
 test("Delta Engine - State Differential Context Compression", () => {

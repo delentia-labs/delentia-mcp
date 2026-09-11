@@ -320,9 +320,13 @@ test("RCT-7 - Strict 7-Stage Sequential Cognition & Alignment Verification", () 
     assert.ok(s.output.length > 10);
   });
 
-  // Verify Inversion Anchor & Failure State Mapping at Stage 4
+  // Verify Inversion Anchor & Failure State Mapping at Stage 4 — this input's
+  // "race condition" / "high-concurrency" language should trigger the real
+  // "state" failure category via keyword-taxonomy match (see
+  // detectFailureCategories in packages/rct7/src/index.ts), not a fixed count.
   const stage4 = result.stages[3];
-  assert.ok(stage4.output.includes("failure paths"));
+  assert.ok(stage4.output.includes("state"), "expected the 'state' failure category to be detected for a race-condition/concurrency problem");
+  assert.ok(stage4.output.includes(input.target_desired_outcome));
 
   // Alignment score is a real heuristic (see docs/RCT7_SCORING_SPEC.md) —
   // this input supplies both optional fields and a specific problem

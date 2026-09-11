@@ -73,6 +73,79 @@ function clamp01(n: number): number {
 }
 
 /**
+ * Splits text into non-empty sentence/clause units on ., !, ?, ;, newlines.
+ * Only splits on "." when followed by whitespace/end-of-string, so common
+ * mid-word periods (e.g. "Node.js", "v1.2.3") are not treated as sentence
+ * boundaries. This is a regex heuristic, not a real sentence tokenizer —
+ * it will still mis-split some abbreviations (e.g. "e.g. foo").
+ */
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?:[!?;\n]+|\.(?=\s|$))+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Splits a problem statement into candidate atomic sub-tasks by breaking on
+ * coordinating conjunctions and separators. This is a syntactic heuristic
+ * (regex-based), not real semantic task decomposition.
+ */
+export function extractSubtasks(problemStatement: string): string[] {
+  const parts = problemStatement
+    .split(/\s*(?:,|;|\band then\b|\bthen\b|\band\b|\bwhile\b|\bafter\b|\bbefore\b|\bso that\b)\s*/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return parts.length > 0 ? parts : [problemStatement.trim()];
+}
+
+/**
+ * Small fixed taxonomy of failure categories, matched against problem +
+ * target text by keyword presence. Detects only categories with an actual
+ * keyword hit — does not assert a fixed number of failure paths regardless
+ * of input, unlike the previous hardcoded "3 critical failure paths" text.
+ */
+const FAILURE_TAXONOMY: Record<string, string[]> = {
+  security: ["auth", "credential", "inject", "exploit", "leak", "privilege", "secret", "token", "attack"],
+  resource: ["timeout", "memory", "cpu", "rate limit", "quota", "exhaust", "overload", "scale", "cost"],
+  state: ["race", "concurren", "desync", "stale", "cache", "consisten", "rollback", "migrat"],
+  data_quality: ["missing", "invalid", "malformed", "null", "corrupt", "incomplete", "ambiguous"],
+};
+
+export function detectFailureCategories(problemStatement: string, targetText: string): string[] {
+  const haystack = `${problemStatement} ${targetText}`.toLowerCase();
+  const hits: string[] = [];
+  for (const [category, keywords] of Object.entries(FAILURE_TAXONOMY)) {
+    if (keywords.some((k) => haystack.includes(k))) hits.push(category);
+  }
+  return hits;
+}
+
+/** English + Thai stopwords excluded from keyword extraction. Small and deliberately incomplete. */
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "your", "which", "will",
+  "have", "has", "are", "was", "were", "can", "should", "would", "must", "not",
+]);
+
+/**
+ * Extracts candidate "core intent" keywords: content words (tokenize()
+ * already strips stopword-length noise) from problem_statement that also
+ * appear in target_desired_outcome, if one was supplied — the words that
+ * survive into both are the strongest available signal of what the caller
+ * actually cares about. Falls back to the first content words of
+ * problem_statement when no target is supplied.
+ */
+export function extractCoreIntentTerms(problemStatement: string, targetDesiredOutcome?: string): string[] {
+  const problemTokens = Array.from(tokenize(problemStatement)).filter((t) => !STOPWORDS.has(t));
+  if (targetDesiredOutcome) {
+    const targetTokens = tokenize(targetDesiredOutcome);
+    const shared = problemTokens.filter((t) => targetTokens.has(t));
+    if (shared.length > 0) return shared.slice(0, 6);
+  }
+  return problemTokens.slice(0, 4);
+}
+
+/**
  * Computes a deterministic, input-dependent alignment score in [0,1].
  *
  * This is a self-contained heuristic (no external LLM calls), designed for
@@ -125,9 +198,27 @@ export function computeAlignmentScore(input: RCT7Input): { score: number; breakd
  */
 export function executeRCT7(input: RCT7Input): RCT7ExecutionResult {
   const { problem_statement, environment_context, target_desired_outcome } = input;
-  const contextText = environment_context || "Default execution environment";
   const targetText = target_desired_outcome || `Successful resolution of: ${problem_statement}`;
   const { score: alignmentScore, breakdown } = computeAlignmentScore(input);
+
+  // Stage 1 signal: actual sentence/clause units captured from the inputs.
+  const observedSignals = [...splitSentences(problem_statement), ...(environment_context ? splitSentences(environment_context) : [])];
+
+  // Stage 2 signal: real lexical overlap between environment_context and
+  // problem_statement — how much the supplied context actually relates to
+  // the stated problem, not a canned "dependencies identified" claim.
+  const contextProblemOverlap = environment_context
+    ? Math.round(jaccardSimilarity(tokenize(environment_context), tokenize(problem_statement)) * 10000) / 10000
+    : null;
+
+  // Stage 3 signal: real syntactic sub-task split.
+  const subtasks = extractSubtasks(problem_statement);
+
+  // Stage 4 signal: real keyword-taxonomy failure-category detection.
+  const failureCategories = detectFailureCategories(problem_statement, targetText);
+
+  // Stage 5 signal: real extracted core-intent terms.
+  const coreTerms = extractCoreIntentTerms(problem_statement, target_desired_outcome);
 
   const stages: RCT7StageOutput[] = [
     {
@@ -135,42 +226,54 @@ export function executeRCT7(input: RCT7Input): RCT7ExecutionResult {
       name: "OBSERVE",
       thai_name: "สังเกต",
       cognitive_action: "Capture environment telemetry and raw signals without premature judgment",
-      output: `Observed context: [${contextText}]. Raw input query: "${problem_statement}". Constraints, signals, and parameters gathered.`,
+      output:
+        observedSignals.length > 0
+          ? `Captured ${observedSignals.length} raw signal(s): ${observedSignals.map((s) => `"${s}"`).join("; ")}.${environment_context ? "" : " No environment_context was supplied — analysis is based on problem_statement alone."}`
+          : `No parseable signals captured from the input.`,
     },
     {
       stage: 2,
       name: "ANALYZE",
       thai_name: "วิเคราะห์",
       cognitive_action: "Assess dependency parameters, structural patterns, and component relationships",
-      output: `Pattern analysis: Evaluated relations between user request and underlying system primitives. Dependencies identified across data and execution planes.`,
+      output:
+        contextProblemOverlap === null
+          ? `No environment_context supplied — dependency analysis has nothing to relate the problem statement to. Provide environment_context for a real relational signal here.`
+          : `Lexical overlap between environment_context and problem_statement = ${contextProblemOverlap} (Jaccard). ${contextProblemOverlap > 0 ? "The supplied context shares vocabulary with the stated problem, a structural (not semantic) signal of relevance." : "The supplied context shares no vocabulary with the stated problem — it may be unrelated or use different terminology."}`,
     },
     {
       stage: 3,
       name: "DECONSTRUCT",
       thai_name: "แยกส่วน",
       cognitive_action: "Break down into primitive components and isolate subsystem dependencies",
-      output: `Deconstruction complete: Partitioned the goal into atomic sub-tasks. Separated variable costs, static prerequisites, and execution risks.`,
+      output: `Split into ${subtasks.length} candidate sub-task(s) by syntactic separators: ${subtasks.map((s, i) => `(${i + 1}) "${s}"`).join(", ")}.`,
     },
     {
       stage: 4,
       name: "REVERSE REASONING",
       thai_name: "คิดย้อนกลับ",
       cognitive_action: "Work backwards from emergent outcome, challenge assumptions, and map potential failure states",
-      output: `Inversion anchor: Working backward from target state [${targetText}]. Identified 3 critical failure paths (Prompt injection, Resource exhaustion, State desync). Inverted failure paths to determine mandatory pre-conditions.`,
+      output:
+        failureCategories.length > 0
+          ? `Working backward from target state "${targetText}": keyword-taxonomy match detected ${failureCategories.length} candidate failure categor${failureCategories.length === 1 ? "y" : "ies"}: ${failureCategories.join(", ")}. This is a keyword match against a fixed taxonomy, not a learned risk model — absence of a match does not mean absence of risk.`
+          : `Working backward from target state "${targetText}": no failure category from the fixed taxonomy (security, resource, state, data_quality) matched by keyword. This does not mean the plan is risk-free — only that no keyword-level signal was found; a hardcoded "3 failure paths" figure was previously shown here regardless of input.`,
     },
     {
       stage: 5,
       name: "IDENTIFY CORE INTENT",
       thai_name: "ระบุเจตนาหลัก",
       cognitive_action: "Extract authentic objective (I) distinct from superficial queries",
-      output: `Core Intent (I) extracted: The root requirement is deterministic, high-efficiency execution preserving system sovereignty and mathematical correctness.`,
+      output:
+        coreTerms.length > 0
+          ? `Core intent terms extracted: ${coreTerms.join(", ")}.${target_desired_outcome ? " (terms shared between problem_statement and target_desired_outcome — the strongest available signal of what actually matters)" : " (most prominent content words in problem_statement; supply target_desired_outcome for a stronger signal)"}`
+          : `No content terms could be extracted from problem_statement (too short or all stopwords).`,
     },
     {
       stage: 6,
       name: "RECONSTRUCT",
       thai_name: "สร้างใหม่",
       cognitive_action: "Synthesize targeted solution respecting architectural constraints and intent",
-      output: `Constructed optimal execution blueprint: Formulated step-by-step implementation path avoiding identified failure states.`,
+      output: `Blueprint ordering the ${subtasks.length} sub-task(s) from Stage 3 against the core intent terms from Stage 5 [${coreTerms.join(", ") || "none extracted"}]: ${subtasks.map((s, i) => `Step ${i + 1}: ${s}`).join(" -> ")}.${failureCategories.length > 0 ? ` Mitigations should address: ${failureCategories.join(", ")}.` : ""}`,
     },
     {
       stage: 7,
@@ -185,7 +288,7 @@ export function executeRCT7(input: RCT7Input): RCT7ExecutionResult {
     problem_statement,
     timestamp: new Date().toISOString(),
     stages,
-    synthesized_solution: `[RCT-7 Reasoning Trail] Action path generated for "${problem_statement}" with heuristic alignment score ${alignmentScore.toFixed(4)}.`,
+    synthesized_solution: `[RCT-7 Reasoning Trail] ${subtasks.length}-step plan generated for "${problem_statement}" (core terms: ${coreTerms.join(", ") || "none"}) with heuristic alignment score ${alignmentScore.toFixed(4)}.`,
     verified_alignment_score: alignmentScore,
     alignment_breakdown: breakdown,
   };
