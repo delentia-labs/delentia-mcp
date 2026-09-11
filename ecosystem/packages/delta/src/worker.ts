@@ -31,8 +31,8 @@ export default {
             status: "healthy",
             server: "delentia-delta",
             name: serverName,
-            version: "2.0.0",
-            benchmark: "74.2% - 91.5% token / VRAM reduction",
+            version: "2.1.0",
+            note: "reduction_percentage is computed per-request from actual input (dedup + optional keyword filter); it is not a guaranteed range and can be negative on already-short/unique input.",
             transports: {
               streamable_http: "/mcp",
               server_sent_events: "/sse",
@@ -51,8 +51,8 @@ export default {
           JSON.stringify({
             $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia Delta Context Compressor",
-            version: "2.0.0",
-            description: "Context Window token optimizer utilizing causal graph diffs to reduce token costs by 74.2% - 91.5% without loss of reasoning causality.",
+            version: "2.1.0",
+            description: "Context window optimizer that deduplicates and (with an intent focus) keyword-filters verbose text. Token reduction is computed per-request from actual input, not a fixed guarantee.",
             vendor: {
               name: "Delentia Labs",
               url: "https://delentia.com",
@@ -121,7 +121,7 @@ export default {
                 },
                 serverInfo: {
                   name: "delentia-delta",
-                  version: "2.0.0",
+                  version: "2.1.0",
                 },
               },
             }),
@@ -202,7 +202,7 @@ export default {
                 tools: [
                   {
                     name: "compress_context",
-                    description: "Compresses verbose conversation history by extracting state deltas (74.2% - 91.5% token reduction).",
+                    description: "Compresses verbose conversation history, logs, or codebase context by deduplicating repeated lines and, when `intent_focus` is provided, filtering to lines relevant to that intent. Token reduction is computed fresh per request from the actual input (highly variable — near-zero or even negative on already-short/unique input, higher on repetitive logs) — it is not a fixed guaranteed range. USE WHEN: context is large or repetitive and approaching a token budget; supply `intent_focus` for meaningfully better filtering — without it, only deduplication is applied. DO NOT USE WHEN: you need the content reasoned about (use rct_think) or expect true semantic summarization — this is line-level filtering, not an LLM rewrite, so it can drop details a summarizer would keep.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -228,7 +228,7 @@ export default {
                         compressed_char_count: { type: "number", description: "Character length of compressed delta representation." },
                         estimated_original_tokens: { type: "number", description: "Estimated token count of original context." },
                         estimated_compressed_tokens: { type: "number", description: "Estimated token count of compressed state." },
-                        reduction_percentage: { type: "number", description: "Net token saving percentage achieved." },
+                        reduction_percentage: { type: "number", description: "Real computed token-saving percentage for this request (not clamped to a fixed range). Can be negative if the compression header overhead outweighs savings on already-short/unique input." },
                         compressed_delta_text: { type: "string", description: "Causally compressed state delta text." },
                         context_hash: { type: "string", description: "Cryptographic hash of the state transition." },
                       },

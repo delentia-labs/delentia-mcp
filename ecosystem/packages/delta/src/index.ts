@@ -60,9 +60,15 @@ export function compressContext(input: CompressContextInput): CompressionResult 
   const compressed_char_count = compressed_delta_text.length;
   const estimated_compressed_tokens = Math.ceil(compressed_char_count / 3.5);
 
-  let reduction_percentage = ((estimated_original_tokens - estimated_compressed_tokens) / estimated_original_tokens) * 100;
-  if (reduction_percentage < 0) reduction_percentage = 15.0;
-  reduction_percentage = Math.min(Math.round(reduction_percentage * 10) / 10, 91.5);
+  // Real computed ratio, reported as-is. This can legitimately be negative
+  // (the added [DELENTIA-DELTA-STREAM] header can outweigh savings on
+  // already-short/unique input) or exceed the 74.2%-91.5% range previously
+  // hardcoded here — that range described a specific benchmark input, not a
+  // guaranteed bound for every input, so it is no longer artificially
+  // enforced. Only clamped at the mathematical ceiling: compressed tokens
+  // cannot go below 0, so reduction cannot exceed 100%.
+  const rawReduction = ((estimated_original_tokens - estimated_compressed_tokens) / estimated_original_tokens) * 100;
+  const reduction_percentage = Math.round(Math.min(rawReduction, 100) * 10) / 10;
 
   const context_hash = createHash("sha256").update(compressed_delta_text).digest("hex");
 
@@ -88,7 +94,7 @@ export function createDeltaMcpServer() {
     "compress_context",
     {
       description:
-        "Compresses verbose conversation history, logs, or codebase context by extracting State Deltas based on the user's authentic intent. Reduces context window token and VRAM usage by up to 74.2% - 91.5%.",
+        "Compresses verbose conversation history, logs, or codebase context by deduplicating repeated lines and, when `intent_focus` is provided, filtering to lines relevant to that intent. Token reduction is computed fresh per request from the actual input (highly variable — near-zero or even negative on already-short/unique input, higher on repetitive logs) — it is not a fixed guaranteed range. USE WHEN: context is large or repetitive and approaching a token budget; supply `intent_focus` for meaningfully better filtering — without it, only deduplication is applied. DO NOT USE WHEN: you need the content reasoned about (use rct_think) or expect true semantic summarization — this is line-level filtering, not an LLM rewrite, so it can drop details a summarizer would keep.",
       inputSchema: {
         raw_context: z
           .string()
@@ -115,7 +121,7 @@ export function createDeltaMcpServer() {
         `# Delentia Delta Context Compression Report`,
         `- **Original Tokens (Est.):** ~${result.estimated_original_tokens}`,
         `- **Compressed Tokens (Est.):** ~${result.estimated_compressed_tokens}`,
-        `- **Token / VRAM Reduction:** ${result.reduction_percentage.toFixed(1)}% (Target: 74.2% - 91.5%)`,
+        `- **Token Reduction (this request):** ${result.reduction_percentage.toFixed(1)}%`,
         `- **Context Delta SHA-256:** \`${result.context_hash}\``,
         `- **Timestamp:** ${result.timestamp}`,
         `\n---\n`,

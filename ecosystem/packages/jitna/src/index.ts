@@ -34,7 +34,13 @@ export interface PillarTaskAssignment {
   pillar: LoRAPillarRole;
   displayName: string;
   mission: string;
+  /** "primary" = the pillar the routing decision actually selected for this
+   * objective; "support" = the other 3 pillars, listed for the standing
+   * 1+4 architecture but NOT claimed to be actively working this objective. */
+  role: "primary" | "support";
   assigned_subtask: string;
+  /** Target latency for this pillar's adapter hot-swap. This is a design
+   * target, not a measurement — no LoRA runtime executes in this Worker. */
   expected_vram_switch_ms: number;
 }
 
@@ -82,42 +88,36 @@ export function orchestrateSwarm(input: OrchestrateSwarmInput): SwarmOrchestrati
     M: context_params || {},
   };
 
-  const assigned_pillars: PillarTaskAssignment[] = [
-    {
-      pillar: "router",
-      displayName: LORA_PILLARS.router.displayName,
-      mission: LORA_PILLARS.router.mission,
-      assigned_subtask: `Parse intent "${intentCode}" and route dependency parameters.`,
-      expected_vram_switch_ms: LORA_PILLARS.router.latencyTargetMs,
-    },
-    {
-      pillar: "guardian",
-      displayName: LORA_PILLARS.guardian.displayName,
-      mission: LORA_PILLARS.guardian.mission,
-      assigned_subtask: `Enforce ZK-FDIA gate F = (D^I) * A. Verify caller authorization.`,
-      expected_vram_switch_ms: LORA_PILLARS.guardian.latencyTargetMs,
-    },
-    {
-      pillar: "executor",
-      displayName: LORA_PILLARS.executor.displayName,
-      mission: LORA_PILLARS.executor.mission,
-      assigned_subtask: `Generate tool payload and compile executable output for "${objective}".`,
-      expected_vram_switch_ms: LORA_PILLARS.executor.latencyTargetMs,
-    },
-    {
-      pillar: "scribe",
-      displayName: LORA_PILLARS.scribe.displayName,
-      mission: LORA_PILLARS.scribe.mission,
-      assigned_subtask: `Crystallize runtime state deltas and save warm cache to memory.`,
-      expected_vram_switch_ms: LORA_PILLARS.scribe.latencyTargetMs,
-    },
-  ];
+  // Primary-pillar-specific subtask text — only used for the pillar the
+  // routing decision above actually selected.
+  const primarySubtasks: Record<LoRAPillarRole, string> = {
+    router: `Parse intent "${intentCode}" and route dependency parameters for "${objective}".`,
+    guardian: `Enforce ZK-FDIA gate F = (D^I) * A against "${objective}". Verify caller authorization before executor handoff.`,
+    executor: `Generate tool payload and compile executable output for "${objective}".`,
+    scribe: `Crystallize runtime state deltas from "${objective}" and save warm cache to memory.`,
+  };
+
+  const assigned_pillars: PillarTaskAssignment[] = (["router", "guardian", "executor", "scribe"] as LoRAPillarRole[]).map(
+    (pillar) => {
+      const isPrimary = pillar === primaryPillar;
+      return {
+        pillar,
+        displayName: LORA_PILLARS[pillar].displayName,
+        mission: LORA_PILLARS[pillar].mission,
+        role: isPrimary ? "primary" : "support",
+        assigned_subtask: isPrimary
+          ? primarySubtasks[pillar]
+          : `Standing role only — not actively engaged for "${objective}" (routed to ${LORA_PILLARS[primaryPillar].displayName}).`,
+        expected_vram_switch_ms: LORA_PILLARS[pillar].latencyTargetMs,
+      };
+    }
+  );
 
   return {
     objective,
     jitna_packet,
     assigned_pillars,
-    swarm_strategy: `Dynamic 1+4 LoRA Swapping: Frozen 8B base kernel with dynamic <1.06ms adapter transitions. Zero API token waste.`,
+    swarm_strategy: `Routed to ${LORA_PILLARS[primaryPillar].displayName} as primary handler (1+4 pillar architecture; the other 3 pillars remain on standby for this objective). expected_vram_switch_ms values are design targets, not measurements — no LoRA runtime executes in this deployment.`,
     timestamp: new Date().toISOString(),
   };
 }
@@ -132,7 +132,7 @@ export function createJITNAMcpServer() {
     "orchestrate_swarm",
     {
       description:
-        "Encapsulates complex user objectives into structured JITNA packets [I, D, Delta, A, R, M] and coordinates autonomous agent execution across the 1+4 Pillars LoRA Swarm (Router, Guardian, Executor, Scribe).",
+        "Decomposes a high-level objective into a JITNA packet — a 6-field record: I (Intent: a normalized action code derived from your objective), D (Data readiness, 0-100%), delta (gap remaining to completion = 100-D), A (which of the 4 pillars — Router, Guardian, Executor, or Scribe — is assigned as primary handler), R (a short rationale string), and M (a key-value memory/context map) — then returns a dispatch roster describing what each of the 4 pillars would handle. USE WHEN: you need to break a broad objective into role-based subtasks or want a standardized packet format for downstream coordination. DO NOT USE WHEN: you need to authorize or execute something — it does not call evaluate_fdia itself, so run evaluate_fdia separately on any subtask (especially ones routed to Executor) before acting on it.",
       inputSchema: {
         objective: z
           .string()
@@ -165,7 +165,7 @@ export function createJITNAMcpServer() {
       const pillarList = result.assigned_pillars
         .map(
           (p) =>
-            `- **${p.displayName}** (${p.pillar}): ${p.assigned_subtask} (Hot-swap: <${p.expected_vram_switch_ms}ms)`
+            `- **${p.displayName}** (${p.pillar}, ${p.role}): ${p.assigned_subtask} (target hot-swap: <${p.expected_vram_switch_ms}ms)`
         )
         .join("\n");
 

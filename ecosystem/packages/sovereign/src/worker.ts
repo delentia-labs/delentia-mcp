@@ -1,4 +1,4 @@
-import { evaluateFDIA, FDIAEngine, type ArchitectCustomPolicy } from "@delentia/shared";
+import { evaluateFDIA, FDIAEngine, validatePolicy, type ArchitectCustomPolicy } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
 import { orchestrateSwarm, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
@@ -44,7 +44,7 @@ export default {
             status: "healthy",
             server: "delentia-sovereign",
             name: serverName,
-            version: "2.0.0",
+            version: "2.1.0",
             ecosystem: "Unified 4-Pillar Architecture",
             pillars: ["FDIA Security Gate", "RCT-7 Reasoning Engine", "Delta Context Compressor", "JITNA Swarm Orchestrator"],
             tools_count: 5,
@@ -93,7 +93,7 @@ export default {
         return new Response(
           JSON.stringify({
             name: "Delentia Sovereign AI Ecosystem",
-            version: "2.0.0",
+            version: "2.1.0",
             description: "Unified All-in-One Sovereign AI Operating System MCP Server bundling all 4 Core Pillars: FDIA Security, RCT-7 Reasoning, Delta Compression, and JITNA Swarm Orchestration.",
             vendor: {
               name: "Delentia Labs",
@@ -138,7 +138,7 @@ export default {
                 },
                 serverInfo: {
                   name: "delentia-sovereign",
-                  version: "2.0.0",
+                  version: "2.1.0",
                 },
               },
             }),
@@ -290,13 +290,44 @@ export default {
         // ==========================================
         if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
-          activePolicy = policyData;
+
+          // Validate BEFORE mutating any state or reporting success. Previously
+          // this endpoint accepted any object and echoed back "success" even
+          // for schema-invalid policies, which would later be silently
+          // rejected (falling back to the default policy) the first time
+          // evaluate_fdia tried to use it — with no error surfaced to the
+          // caller who thought their policy had taken effect.
+          const validation = validatePolicy(policyData);
+          if (!validation.valid) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify(
+                        { status: "error", message: "Policy rejected: schema validation failed. No state was changed.", errors: validation.errors, _meta: tierMeta },
+                        null,
+                        2
+                      ),
+                    },
+                  ],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
+
+          activePolicy = validation.policy;
 
           // If Cloudflare KV is bound, persist directly for zero-redeploy real-time sync
           const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
           if (kv && typeof kv.put === "function") {
             try {
-              await kv.put("fdia-policy", JSON.stringify(policyData));
+              await kv.put("fdia-policy", JSON.stringify(activePolicy));
             } catch {
               // Non-blocking in local dev
             }
@@ -307,7 +338,7 @@ export default {
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy updated and synchronized", policy: activePolicy, _meta: tierMeta }, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy validated, updated, and synchronized", policy: activePolicy, warnings: validation.warnings, _meta: tierMeta }, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -408,7 +439,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Evaluates security authorization and risk posture for proposed tool actions using mathematical safety verification equation F = (D^I) * A.",
+                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); BLOCKED_PREEMPTION or a SECURITY_* verdict means it did not, or A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (use rct_think or orchestrate_swarm first, then evaluate_fdia on the resulting concrete action).",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -465,7 +496,7 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Configures or updates enterprise access control policies, action constraints, and safety thresholds.",
+                    description: "Replaces the active authorization policy that evaluate_fdia checks against. IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. Propagation is eventually consistent, not atomic: this worker's in-memory policy updates immediately, and is best-effort persisted to KV for other edge instances to pick up, so a request routed to a different isolate may briefly see the old policy. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself before changing it if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia) or reason about a task (use rct_think) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -515,7 +546,7 @@ export default {
                   },
                   {
                     name: "rct_think",
-                    description: "Performs a structured 7-stage causal problem-solving analysis (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to solve complex technical tasks.",
+                    description: "Performs a structured 7-stage causal reasoning walkthrough (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to produce an explicit, auditable reasoning trail before acting on a complex or ambiguous task. USE WHEN: a task has multiple plausible approaches or unclear scope and you want a documented plan before execution. DO NOT USE WHEN: the task is simple and unambiguous — this tool only produces a reasoning report, it does not check authorization (pair it with evaluate_fdia before acting) or execute anything itself (pair it with orchestrate_swarm or your own tooling to carry out the plan).",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -552,7 +583,7 @@ export default {
                   },
                   {
                     name: "compress_context",
-                    description: "Compresses verbose dialogue history or system logs by extracting state deltas to optimize context window efficiency.",
+                    description: "Compresses verbose conversation history, logs, or codebase context by deduplicating repeated lines and, when `intent_focus` is provided, filtering to lines relevant to that intent. Token reduction is computed fresh per request from the actual input (highly variable — near-zero or even negative on already-short/unique input, higher on repetitive logs) — it is not a fixed guaranteed range. USE WHEN: context is large or repetitive and approaching a token budget; supply `intent_focus` for meaningfully better filtering — without it, only deduplication is applied. DO NOT USE WHEN: you need the content reasoned about (use rct_think) or expect true semantic summarization — this is line-level filtering, not an LLM rewrite, so it can drop details a summarizer would keep.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -578,7 +609,7 @@ export default {
                         compressed_char_count: { type: "number", description: "Character length of compressed delta representation." },
                         estimated_original_tokens: { type: "number", description: "Estimated token count of original context." },
                         estimated_compressed_tokens: { type: "number", description: "Estimated token count of compressed state." },
-                        reduction_percentage: { type: "number", description: "Net token saving percentage achieved." },
+                        reduction_percentage: { type: "number", description: "Real computed token-saving percentage for this request (not clamped to a fixed range). Can be negative if the compression header overhead outweighs savings on already-short/unique input." },
                         compressed_delta_text: { type: "string", description: "Causally compressed state delta text." },
                         context_hash: { type: "string", description: "Cryptographic hash of the state transition." },
                       },
@@ -592,7 +623,7 @@ export default {
                   },
                   {
                     name: "orchestrate_swarm",
-                    description: "Coordinates multi-agent task distribution across specialized roles (Router, Guardian, Executor, Scribe).",
+                    description: "Decomposes a high-level objective into a JITNA packet — a 6-field record: I (Intent: a normalized action code derived from your objective), D (Data readiness, 0-100%), delta (gap remaining to completion = 100-D), A (which of the 4 pillars — Router, Guardian, Executor, or Scribe — is assigned as primary handler), R (a short rationale string), and M (a key-value memory/context map) — then returns a dispatch roster describing what each of the 4 pillars would handle. USE WHEN: you need to break a broad objective into role-based subtasks or want a standardized packet format for downstream coordination. DO NOT USE WHEN: you need to authorize or execute something — it does not call evaluate_fdia itself, so run evaluate_fdia separately on any subtask (especially ones routed to Executor) before acting on it.",
                     inputSchema: {
                       type: "object",
                       properties: {

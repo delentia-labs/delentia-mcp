@@ -1,6 +1,6 @@
 {
   "name": "@delentia/shared",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Core FDIA mathematical formulas, ZK boundary guards, and JITNA packet definitions for Delentia OS",
   "type": "module",
   "main": "./dist/index.js",

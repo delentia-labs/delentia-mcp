@@ -1,6 +1,6 @@
 {
   "name": "delentia-mcp-ecosystem",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Delentia OS MCP Ecosystem — High-performance, Intent-Centric Enterprise MCP Servers with Dual-Transport and Policy Engine",
   "workspaces": [
@@ -13,7 +13,13 @@
     "build:delta": "npm run --workspace=@delentia/mcp-delta build",
     "build:jitna": "npm run --workspace=@delentia/mcp-jitna build",
     "build": "npm run build:shared && npm run build:fdia && npm run build:rct7 && npm run build:delta && npm run build:jitna",
-    "typecheck": "tsc --noEmit",
+    "typecheck:shared": "tsc --noEmit -p packages/shared/tsconfig.json",
+    "typecheck:fdia": "tsc --noEmit -p packages/fdia/tsconfig.json",
+    "typecheck:rct7": "tsc --noEmit -p packages/rct7/tsconfig.json",
+    "typecheck:delta": "tsc --noEmit -p packages/delta/tsconfig.json",
+    "typecheck:jitna": "tsc --noEmit -p packages/jitna/tsconfig.json",
+    "typecheck:sovereign": "tsc --noEmit -p packages/sovereign/tsconfig.json",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:fdia && npm run typecheck:rct7 && npm run typecheck:delta && npm run typecheck:jitna && npm run typecheck:sovereign",
     "test": "node tests/ecosystem.test.mjs",
     "test:deep": "node tests/deep-ecosystem.test.mjs",
     "test:policy": "node tests/test_fdia_policy_engine.mjs",
@@ -29,7 +35,8 @@
     "deploy:rct7": "npm --workspace=@delentia/mcp-rct7 run deploy",
     "deploy:delta": "npm --workspace=@delentia/mcp-delta run deploy",
     "deploy:jitna": "npm --workspace=@delentia/mcp-jitna run deploy",
-    "deploy:all": "npm run deploy:fdia && npm run deploy:rct7 && npm run deploy:delta && npm run deploy:jitna",
+    "deploy:sovereign": "npm --workspace=@delentia/mcp-sovereign run deploy",
+    "deploy:all": "npm run deploy:fdia && npm run deploy:rct7 && npm run deploy:delta && npm run deploy:jitna && npm run deploy:sovereign",
     "console": "node scripts/interactive-mcp.mjs"
   },
   "keywords": [

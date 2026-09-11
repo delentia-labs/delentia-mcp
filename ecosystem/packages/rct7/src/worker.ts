@@ -31,7 +31,7 @@ export default {
             status: "healthy",
             server: "delentia-rct7",
             name: serverName,
-            version: "2.0.0",
+            version: "2.1.0",
             stages: 7,
             transports: {
               streamable_http: "/mcp",
@@ -51,7 +51,7 @@ export default {
           JSON.stringify({
             $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia RCT-7 Thinking Engine",
-            version: "2.0.0",
+            version: "2.1.0",
             description: "Authentic 7-Stage Reverse Component Thinking mental operating system to eliminate LLM hallucination and ensure causal intent alignment.",
             vendor: {
               name: "Delentia Labs",
@@ -121,7 +121,7 @@ export default {
                 },
                 serverInfo: {
                   name: "delentia-rct7",
-                  version: "2.0.0",
+                  version: "2.1.0",
                 },
               },
             }),
@@ -203,7 +203,7 @@ export default {
                 tools: [
                   {
                     name: "rct_think",
-                    description: "Executes authentic Delentia 7-Stage Reverse Component Thinking mental OS to eliminate hallucination.",
+                    description: "Performs a structured 7-stage causal reasoning walkthrough (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to produce an explicit, auditable reasoning trail before acting on a complex or ambiguous task. USE WHEN: a task has multiple plausible approaches or unclear scope and you want a documented plan before execution. DO NOT USE WHEN: the task is simple and unambiguous — this tool only produces a reasoning report, it does not check authorization (pair it with evaluate_fdia before acting) or execute anything itself (pair it with orchestrate_swarm or your own tooling to carry out the plan).",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -228,7 +228,8 @@ export default {
                         problem_statement: { type: "string", description: "Original problem statement received." },
                         stages: { type: "array", description: "Detailed 7-Stage cognitive outputs (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent)." },
                         synthesized_solution: { type: "string", description: "Synthesized executive blueprint strictly causally aligned with core intent." },
-                        verified_alignment_score: { type: "number", description: "Causal alignment index (1.0000 = 100% verified, 0% hallucination risk)." },
+                        verified_alignment_score: { type: "number", description: "Deterministic heuristic alignment score in [0,1], computed from grounding completeness, problem specificity, and lexical overlap between problem_statement and target_desired_outcome. Varies with input — not a constant. Not a semantic correctness guarantee; see docs/RCT7_SCORING_SPEC.md." },
+                        alignment_breakdown: { type: "object", description: "Sub-scores behind verified_alignment_score: grounding_completeness, problem_specificity, lexical_alignment (each 0-1)." },
                       },
                       required: ["problem_statement", "stages", "synthesized_solution", "verified_alignment_score"],
                     },

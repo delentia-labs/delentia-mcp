@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/mcp-server-card.json",
   "name": "Delentia OS MCP Ecosystem",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Enterprise Intent-Centric MCP Ecosystem featuring FDIA Deterministic Security, Authentic RCT-7 Reverse Thinking, Delta Context Compression, and JITNA Swarm Orchestration.",
   "vendor": {
     "name": "Delentia Labs",
@@ -41,7 +41,7 @@
     {
       "id": "delentia-delta",
       "name": "Delentia Delta Context Compressor",
-      "description": "State Differential compressor reducing context window token overhead by up to 74.2% to 91.5% while preserving semantic causality.",
+      "description": "State differential compressor that deduplicates and (with an intent focus) keyword-filters verbose text. Token reduction is computed per-request from actual input, not a fixed guarantee.",
       "transport": {
         "type": "streamable-http",
         "url": "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/delta"

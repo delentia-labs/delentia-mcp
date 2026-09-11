@@ -31,7 +31,7 @@ export default {
             status: "healthy",
             server: "delentia-jitna",
             name: serverName,
-            version: "2.0.0",
+            version: "2.1.0",
             architecture: "1+N Multi-Agent Swarm",
             pillars: ["The Router", "The Guardian", "The Executor", "The Scribe"],
             transports: {
@@ -52,7 +52,7 @@ export default {
           JSON.stringify({
             $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia JITNA Swarm Orchestrator",
-            version: "2.0.0",
+            version: "2.1.0",
             description: "Intent-driven multi-agent orchestration framework coordinating 1+4 Specialized Pillar Agents (Router, Guardian, Executor, Scribe).",
             vendor: {
               name: "Delentia Labs",
@@ -122,7 +122,7 @@ export default {
                 },
                 serverInfo: {
                   name: "delentia-jitna",
-                  version: "2.0.0",
+                  version: "2.1.0",
                 },
               },
             }),
@@ -200,7 +200,7 @@ export default {
                 tools: [
                   {
                     name: "orchestrate_swarm",
-                    description: "Encapsulates objectives into JITNA packets and coordinates 1+4 Specialized Pillar Agents (Router, Guardian, Executor, Scribe).",
+                    description: "Decomposes a high-level objective into a JITNA packet — a 6-field record: I (Intent: a normalized action code derived from your objective), D (Data readiness, 0-100%), delta (gap remaining to completion = 100-D), A (which of the 4 pillars — Router, Guardian, Executor, or Scribe — is assigned as primary handler), R (a short rationale string), and M (a key-value memory/context map) — then returns a dispatch roster describing what each of the 4 pillars would handle. USE WHEN: you need to break a broad objective into role-based subtasks or want a standardized packet format for downstream coordination. DO NOT USE WHEN: you need to authorize or execute something — it does not call evaluate_fdia itself, so run evaluate_fdia separately on any subtask (especially ones routed to Executor) before acting on it.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -231,7 +231,7 @@ export default {
                       properties: {
                         objective: { type: "string", description: "Original mission objective." },
                         jitna_packet: { type: "object", description: "Decomposed JITNA v3 execution packet (I, D, delta, A, R, M)." },
-                        assigned_pillars: { type: "array", description: "Specialized pillar agent assignments with expected sub-tasks and switch latencies." },
+                        assigned_pillars: { type: "array", description: "All 4 pillars, each tagged role='primary' (the one actually selected by routing, with an objective-specific subtask) or role='support' (standing role only, not engaged for this objective). expected_vram_switch_ms is a design target, not a measurement." },
                         swarm_strategy: { type: "string", description: "Dynamic LoRA switching execution strategy." },
                       },
                       required: ["objective", "jitna_packet", "assigned_pillars"],

@@ -1,6 +1,7 @@
 import {
   evaluateFDIA,
   FDIAEngine,
+  validatePolicy,
   type WorkersPolicyKV,
   type FDIARequest,
   type ArchitectCustomPolicy,
@@ -50,7 +51,7 @@ export default {
             status: "healthy",
             server: "delentia-fdia",
             name: serverName,
-            version: "2.0.0",
+            version: "2.1.0",
             equation: "F = (D^I) * A",
             transports: {
               streamable_http: "/mcp",
@@ -80,7 +81,7 @@ export default {
           JSON.stringify({
             $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia OS MCP Ecosystem",
-            version: "1.0.0",
+            version: "1.1.0",
             description: "Enterprise Sovereign AI Operating System featuring FDIA Mathematical Security, RCT-7 Thinking, Delta Compression, and JITNA Swarm.",
             vendor: {
               name: "Delentia Labs",
@@ -225,7 +226,7 @@ export default {
                 },
                 serverInfo: {
                   name: "delentia-fdia",
-                  version: "2.0.0",
+                  version: "2.1.0",
                 },
               },
             }),
@@ -241,15 +242,44 @@ export default {
         }
 
         // Tool: configure_policy
-        if (body.method === "tools/call" && body.params?.name === "configure_policy" || body.tool === "configure_policy") {
+        // (Fixed operator precedence: previously `A && B || C` matched on
+        // body.tool==="configure_policy" alone regardless of body.method.)
+        if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
+
+          // Validate before touching the Durable Object or KV — previously
+          // any object was forwarded and echoed back as-is with no schema
+          // check, so an invalid policy could be "saved" and reported
+          // success while evaluate_fdia would later reject or fall back to
+          // defaults with no visible error to the caller.
+          const validation = validatePolicy(policyData);
+          if (!validation.valid) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({ status: "error", message: "Policy rejected: schema validation failed. No state was changed.", errors: validation.errors }, null, 2),
+                    },
+                  ],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
+          const validatedPolicy = validation.policy;
+
           const doId = env.FDIA_SESSION_DO.idFromName("global_audit_session");
           const doStub = env.FDIA_SESSION_DO.get(doId);
 
           const doResp = await doStub.fetch("http://do/policy", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(policyData),
+            body: JSON.stringify(validatedPolicy),
           });
           const resultJson = await doResp.json();
 
@@ -257,7 +287,7 @@ export default {
           const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
           if (kv && typeof kv.put === "function") {
             try {
-              await kv.put("fdia-policy", JSON.stringify(policyData));
+              await kv.put("fdia-policy", JSON.stringify(validatedPolicy));
             } catch {
               // Non-blocking in local dev
             }
@@ -355,7 +385,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Evaluates action requests through deterministic ZK-FDIA equation F = (D^I) * A and enterprise custom policy rules.",
+                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); a SECURITY_* verdict means A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (plan first, then evaluate_fdia on the resulting concrete action).",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -412,7 +442,7 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Configures or updates Enterprise Custom Policy rules for parameter A.",
+                    description: "Replaces the active authorization policy that evaluate_fdia checks against, persisted in a Durable Object session (durable across requests and isolates, unlike a plain in-memory variable). IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself first if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia instead) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
                     inputSchema: {
                       type: "object",
                       properties: {

@@ -324,16 +324,19 @@ test("RCT-7 - Strict 7-Stage Sequential Cognition & Alignment Verification", () 
   const stage4 = result.stages[3];
   assert.ok(stage4.output.includes("failure paths"));
 
-  // Verify 100% alignment score at Stage 7
-  assert.equal(result.verified_alignment_score, 1.0);
-  assert.ok(result.synthesized_solution.includes("100% alignment"));
+  // Alignment score is a real heuristic (see docs/RCT7_SCORING_SPEC.md) —
+  // this input supplies both optional fields and a specific problem
+  // statement, so it should score well, but not assert a fixed constant.
+  assert.ok(result.verified_alignment_score >= 0 && result.verified_alignment_score <= 1);
+  assert.equal(result.alignment_breakdown.grounding_completeness, 1); // both optional fields supplied
+  assert.ok(result.synthesized_solution.includes(result.verified_alignment_score.toFixed(4)));
 });
 
 // ============================================================================
 // 5. DELTA ENGINE CONTEXT COMPRESSOR DEEP TESTS
 // ============================================================================
 
-test("Delta Engine - Deep Token/VRAM Reduction Benchmark (74.2% - 91.5%)", () => {
+test("Delta Engine - Deep Token Reduction Benchmark (real computed value, no fixed cap)", () => {
   const logLines = [];
   for (let i = 0; i < 200; i++) {
     logLines.push(`[2026-08-31 08:00:${i % 60}] [INFO] [Thread-${i % 8}] Keepalive heartbeat status OK`);
@@ -352,7 +355,10 @@ test("Delta Engine - Deep Token/VRAM Reduction Benchmark (74.2% - 91.5%)", () =>
 
   assert.ok(result.compressed_char_count < result.original_char_count);
   assert.ok(result.reduction_percentage >= 50.0);
-  assert.ok(result.reduction_percentage <= 91.5);
+  // No upper-bound cap asserted here on purpose — reduction_percentage is
+  // the real computed value now, not clamped to a fixed range (see
+  // packages/delta/src/index.ts). Highly repetitive input like this can
+  // legitimately exceed the old hardcoded 91.5 ceiling.
   assert.ok(result.compressed_delta_text.includes("Deadlock"));
   assert.ok(result.context_hash.length === 64);
 });

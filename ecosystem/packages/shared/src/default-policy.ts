@@ -1,0 +1,59 @@
+/**
+ * Delentia Sovereign AI Operating System - Default Enterprise Policy
+ * Bundled statically for maximum cross-runtime compatibility (Node.js, Cloudflare Workers, Browser)
+ * 
+ * Chief Architect: Ittirit Saengow (Chief Architect / Delentia Labs)
+ * Strictly Zero Dollar Signs enforced.
+ */
+
+export const bundledPolicyConfig = {
+  schema: "https://delentia.com/schemas/fdia-policy-v1.json",
+  version: "1.0.0",
+  organization_id: "enterprise-org-01",
+  policy_id: "enterprise-fdia-policy-v1",
+  policy_name: "Delentia Enterprise Sovereign Safety Policy",
+  default_fallback_A: 0,
+  custom_safety_threshold: 0.5,
+  rules: [
+    {
+      rule_id: "RULE-READONLY-ALLOW",
+      description: "อนุญาตคำสั่งอ่านข้อมูลและวิเคราะห์ทั่วไปโดยอัตโนมัติ (Zero Latency Friction)",
+      intent_patterns: ["read_*", "query_*", "summarize_*", "search_*", "check_*", "inspect_*", "evaluate_*", "get_*", "list_*", "quick_*", "*telemetry*", "*quick_eval*"],
+      action_type: "ALLOW",
+      assigned_A: 1,
+      require_human_confirmation: false
+    },
+    {
+      rule_id: "RULE-FILE-WRITE-RESTRICTED",
+      description: "การเขียนหรือแก้ไขไฟล์ต้องตรวจสอบพาธ ห้ามยุ่งกับโฟลเดอร์สำคัญ",
+      intent_patterns: ["write_file", "modify_code", "write_*", "modify_*", "update_*", "save_*", "*operation*", "*task*"],
+      denied_paths: [".env", ".git/*", "production.config.*", "/etc/*", "id_rsa*", "*.pem", "*.key"],
+      action_type: "CONDITIONAL",
+      assigned_A: 1,
+      require_human_confirmation: false
+    },
+    {
+      rule_id: "RULE-DATABASE-DESTRUCTIVE-BLOCK",
+      description: "คำสั่งลบข้อมูลหรือทำลายระบบ ต้องมีลายเซ็น Architect เท่านั้น",
+      intent_patterns: ["drop_*", "delete_*", "purge_*", "truncate_*", "execute_shell", "exec_*", "chmod_*", "system_exec*", "eval_*", "*eval_code*"],
+      action_type: "REQUIRE_HUMAN_SIGNATURE",
+      assigned_A: 0,
+      require_human_confirmation: true,
+      human_approver_role: ["Chief_Architect", "DevOps_Lead", "Security_Admin"]
+    }
+  ],
+  blocked_action_patterns: [
+    "*drop_table*",
+    "*drop_database*",
+    "*truncate*",
+    "*wipe*",
+    "*exfiltrate*",
+    "*export_credentials*"
+  ],
+  require_human_dual_signoff: [
+    "deploy_to_production",
+    "modify_financial_ledger",
+    "grant_admin_privilege",
+    "shutdown_service"
+  ]
+};

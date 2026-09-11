@@ -752,10 +752,20 @@ export class FDIAEngine {
   /**
    * Mathematical Safety Core Equation: F = (D^I) * A
    * If A = 0, F unconditionally collapses to 0.0000.
+   *
+   * Fails closed (returns 0) on non-finite or out-of-domain D/I/A instead of
+   * letting Math.pow produce NaN — e.g. Math.pow(-0.5, 1.5) is NaN, and a
+   * NaN future_score previously compared false against every threshold
+   * check in evaluate(), which fell through to the AUTHORIZED branch. A
+   * broken numeric input must never be treated as a passing score.
    */
   public calculateF(D: number, I: number, A: number): number {
     if (A === 0) return 0.0;
+    if (!Number.isFinite(D) || !Number.isFinite(I) || !Number.isFinite(A) || D < 0 || I < 0) {
+      return 0.0;
+    }
     const raw = Math.pow(D, I) * A;
+    if (!Number.isFinite(raw)) return 0.0;
     return Math.round(raw * 10000) / 10000;
   }
 
@@ -809,13 +819,26 @@ export class FDIAEngine {
       violations.push(aEval.reason);
     }
 
+    // Fail closed on malformed numeric input (non-finite, negative, or
+    // otherwise out-of-domain D/I) instead of letting an invalid score slip
+    // through as if it were a legitimate low/high value.
+    const numericInputInvalid =
+      !Number.isFinite(data_quality) || data_quality < 0 || !Number.isFinite(intent_precision) || intent_precision < 0;
+    if (numericInputInvalid) {
+      effectiveA = 0;
+      violations.push(`Invalid numeric input: data_quality=${data_quality}, intent_precision=${intent_precision}.`);
+    }
+
     // Calculate F = (D^I) * A
     const future_score = effectiveEngine.calculateF(data_quality, intent_precision, effectiveA);
 
     let verdict: FDIASecurityVerdict = "AUTHORIZED";
     let reason = aEval.reason;
 
-    if (effectiveA === 0) {
+    if (numericInputInvalid) {
+      verdict = "SECURITY_POLICY_VIOLATION";
+      reason = `Rejected: data_quality and intent_precision must be finite, non-negative numbers (got data_quality=${data_quality}, intent_precision=${intent_precision}). Fail-closed.`;
+    } else if (effectiveA === 0) {
       if (aEval.ruleTriggered === "SECURITY_RBAC_DENIED") {
         verdict = "SECURITY_RBAC_DENIED";
       } else if (aEval.ruleTriggered === "SECURITY_DUAL_SIGNOFF_REQUIRED") {
