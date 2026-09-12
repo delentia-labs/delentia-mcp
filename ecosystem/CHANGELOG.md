@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (2026-09-12, part 3) — RCT-7 now synthesizes FDIA's intent_precision
+
+### Added
+- `FDIAGatekeeper.validate()` (`packages/intent-loop/src/index.ts`) now calls the real `executeRCT7()` (`@delentia/mcp-rct7`) on every intent and derives `intent_precision` (FDIA's `I`) from its real `verified_alignment_score` via `I = 0.5 + alignment_score * 1.5` (range [0.5, 2.0]) — the first place anywhere in the ecosystem where RCT-7's actual decomposition output feeds FDIA's `I` rather than a caller-supplied constant or unrelated heuristic. `data_quality` (D) stays an independent heuristic on purpose (RCT-7 measures intent specificity, not data sufficiency — conflating them would blur what each FDIA parameter means). `IntentResult` now carries the full RCT-7 trail (`rct7` field) on every successful gate pass, for audit.
+- 2 new deterministic regression tests proving the derived `I` is real (input-dependent, deterministic, stays in range, and that supplying `context` genuinely raises RCT-7's `grounding_completeness` rather than flipping a hardcoded branch).
+- Full documentation of the design + a real performance measurement in `TESTING_CANONICAL.md`'s new "RCT-7 → FDIA intent_precision synthesis" section: 3,000 real `validate()` calls averaged **0.0145ms each** — the synthesis step adds effectively zero latency next to the live pipeline's actual network calls (~3.7-4.1s for the 2 real OpenRouter round trips).
+- Re-ran the live end-to-end test (`tests/intent_loop_live.test.mjs`) against real OpenRouter models with the new synthesis wired in: all 4 scenarios behaved correctly, including a destructive intent's rejection message now surfacing the real RCT-7 alignment score and derived `I` inline (`[RCT-7 alignment=0.125, derived I=0.6875]`).
+
+### Known, disclosed, NOT done in this pass
+- This synthesis is `packages/intent-loop`-only. The standalone `fdia`/`rct7`/`delta`/`jitna`/`sovereign` workers and the Python `rct_control_plane` side still take `intent_precision` as a plain caller-supplied number — this is not yet an ecosystem-wide default.
+
 ## Unreleased (2026-09-12, part 2) — Intent Loop consolidated into the MCP ecosystem
 
 ### Added

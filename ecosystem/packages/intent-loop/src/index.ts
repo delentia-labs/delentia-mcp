@@ -27,10 +27,23 @@
  * mirrors the exact "global session" gap already documented in ROADMAP.md for the other
  * 4 pillar workers; wiring this into a properly-scoped (per-caller, not global) Durable
  * Object is real follow-up work, not done in this pass.
+ *
+ * 2026-09-12 addition — the missing conveyor belt: FDIAGatekeeper.validate() now
+ * derives `intent_precision` (FDIA's I) from a real call to `executeRCT7()`
+ * (`@delentia/mcp-rct7`) instead of a standalone word-count/context-presence
+ * heuristic. This is the first place anywhere in the whole Delentia ecosystem
+ * where RCT-7's actual decomposition output feeds FDIA's I parameter as a real,
+ * synthesized value rather than a caller-supplied constant or an unrelated
+ * heuristic — see FDIAGatekeeper.validate()'s comment for the exact mapping and
+ * why. `data_quality` (D) is intentionally left as a separate, simpler heuristic:
+ * RCT-7 measures how well-specified the INTENT is, not how sufficient the DATA
+ * backing the action is — conflating the two would blur what each FDIA parameter
+ * means, so they stay independently derived.
  */
 
 import { createHash } from "node:crypto";
 import { evaluateFDIA, type FDIARequest } from "@delentia/shared";
+import { executeRCT7, type RCT7ExecutionResult } from "@delentia/mcp-rct7";
 
 // ============================================================================
 // Types
@@ -88,6 +101,8 @@ export interface IntentResult {
   cache_hit: boolean;
   verification?: VerificationResult;
   fdia_score?: number;
+  /** The full RCT-7 decomposition that produced this run's intent_precision (I) — present whenever the FDIA gate ran (even on rejection), absent only on a cache hit (no gate re-run needed). */
+  rct7?: RCT7ExecutionResult;
   metadata: Record<string, unknown>;
 }
 
@@ -122,9 +137,10 @@ export class FDIAGatekeeper {
   /**
    * Validates intent against the same 3-step pipeline as the Python original:
    * length guard -> forbidden-keyword guard -> real FDIA quality-gate call.
-   * Throws SecurityViolation on any failure; returns the real FDIA score on success.
+   * Throws SecurityViolation on any failure; returns the real FDIA score and
+   * the RCT-7 trail that produced its intent_precision (I) on success.
    */
-  validate(packet: IntentPacket): { passed: true; fdia_score: number } {
+  validate(packet: IntentPacket): { passed: true; fdia_score: number; rct7: RCT7ExecutionResult } {
     if (packet.intent.length > this.config.maxIntentLength) {
       throw new SecurityViolation(`Intent exceeds maximum length (${packet.intent.length} > ${this.config.maxIntentLength})`);
     }
@@ -136,13 +152,35 @@ export class FDIAGatekeeper {
       }
     }
 
-    // Map the free-text intent onto FDIA's action_name-driven policy gate.
-    // data_quality/intent_precision are derived from simple, real, disclosed
-    // heuristics (length + specificity), not fabricated constants — same
-    // spirit as rct7's data-driven stage scoring from the earlier hardening pass.
+    // The conveyor belt: run the intent through RCT-7's real 7-stage
+    // decomposition (the same hardened, data-driven engine from
+    // @delentia/mcp-rct7 — sentence splitting, sub-task extraction, failure-
+    // category detection, core-term extraction, and a real 0-1 alignment
+    // score combining grounding completeness + problem specificity + lexical
+    // overlap with the stated target). Its verified_alignment_score becomes
+    // FDIA's intent_precision (I) via a documented linear mapping:
+    //   I = 0.5 + alignment_score * 1.5   =>   range [0.5, 2.0]
+    // 0.5 is FDIA's own schema floor (FDIARequestSchema.intent_precision.min);
+    // 2.0 is a deliberate design ceiling, not derived from anything else.
+    // Semantics: a vague, ungrounded intent (alignment~0) gets the most
+    // LENIENT exponent (I=0.5) — F=D^I shrinks slower for imprecise D,
+    // matching "we don't understand this well enough to be strict about
+    // data quality either." A precisely-grounded intent (alignment~1) gets
+    // I=2.0 — F=D^I punishes D<1 harder, matching "we understand exactly
+    // what's being asked, so weak supporting data is less excusable." This
+    // is the first place in the whole Delentia ecosystem where RCT-7's
+    // actual decomposition output is synthesized into FDIA's I, rather than
+    // I being a caller-supplied constant or an unrelated heuristic.
+    const rct7 = executeRCT7({
+      problem_statement: packet.intent,
+      environment_context: packet.context && Object.keys(packet.context).length > 0 ? JSON.stringify(packet.context) : undefined,
+    });
+    const intent_precision = Math.round((0.5 + rct7.verified_alignment_score * 1.5) * 10000) / 10000;
+
+    // data_quality (D) stays a separate, simpler heuristic on purpose — see
+    // this file's top-of-file comment on why D and I are not conflated.
     const wordCount = packet.intent.trim().split(/\s+/).filter(Boolean).length;
-    const data_quality = Math.min(1, 0.4 + wordCount / 40); // longer, more specific intents score higher
-    const intent_precision = packet.context && Object.keys(packet.context).length > 0 ? 1.2 : 1.0;
+    const data_quality = Math.min(1, 0.4 + wordCount / 40);
 
     const request: FDIARequest = {
       data_quality,
@@ -157,11 +195,11 @@ export class FDIAGatekeeper {
     const result = evaluateFDIA(request);
     if (result.future_score < this.config.fdiaThreshold || !result.authorized) {
       throw new SecurityViolation(
-        `FDIA gate rejected intent: score=${result.future_score.toFixed(4)} verdict=${result.verdict} (${result.reason})`
+        `FDIA gate rejected intent: score=${result.future_score.toFixed(4)} verdict=${result.verdict} (${result.reason}) [RCT-7 alignment=${rct7.verified_alignment_score}, derived I=${intent_precision}]`
       );
     }
 
-    return { passed: true, fdia_score: result.future_score };
+    return { passed: true, fdia_score: result.future_score, rct7 };
   }
 
   /**
@@ -527,11 +565,17 @@ export class IntentLoopEngine {
     this.metrics.total_requests += 1;
     const intentHash = computeIntentHash(packet);
 
-    // Step 1: FDIA validation (real, hardened gate — throws on rejection)
+    // Step 1: FDIA validation (real, hardened gate — throws on rejection).
+    // rct7 is computed inside validate() even when it rejects, but a thrown
+    // SecurityViolation can't carry a return value out — the alignment
+    // score and derived I are still visible in the error message itself
+    // (see validate()'s throw), just not as the full structured trail below.
     let fdiaScore: number;
+    let rct7Result: RCT7ExecutionResult;
     try {
       const gate = this.gatekeeper.validate(packet);
       fdiaScore = gate.fdia_score;
+      rct7Result = gate.rct7;
     } catch (err) {
       const error = err instanceof SecurityViolation ? err.message : String(err);
       return {
@@ -555,6 +599,7 @@ export class IntentLoopEngine {
         latency_ms: Date.now() - start,
         cache_hit: true,
         fdia_score: fdiaScore,
+        rct7: rct7Result,
         metadata: { access_count: cached.access_count, original_created: cached.created_at },
       };
     }
@@ -570,6 +615,7 @@ export class IntentLoopEngine {
         latency_ms: Date.now() - start,
         cache_hit: false,
         fdia_score: fdiaScore,
+        rct7: rct7Result,
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
@@ -586,6 +632,7 @@ export class IntentLoopEngine {
         cache_hit: false,
         verification,
         fdia_score: fdiaScore,
+        rct7: rct7Result,
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
@@ -602,6 +649,7 @@ export class IntentLoopEngine {
       cache_hit: false,
       verification,
       fdia_score: fdiaScore,
+      rct7: rct7Result,
       metadata: { specialist_role: specialistResult.specialist_role },
     };
   }

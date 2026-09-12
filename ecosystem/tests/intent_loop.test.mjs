@@ -73,21 +73,44 @@ test("FDIAGatekeeper: an overlong intent is rejected on the length guard alone (
   assert.throws(() => gk.validate({ intent: "a".repeat(1001) }), SecurityViolation);
 });
 
-test("FDIAGatekeeper: structured context changes intent_precision (I) and therefore the FDIA score — correctly LOWER here, not higher, since F=D^I shrinks as I grows for D<1 (matches the FDIA monotonicity invariant verified in fdia_deep_hypothesis.test.mjs)", () => {
+test("FDIAGatekeeper: intent_precision (I) is now synthesized from a REAL RCT-7 call, not a caller-supplied constant — structured context raises RCT-7's alignment score (grounding_completeness), which raises I, which correctly LOWERS F for data_quality < 1 (matches the FDIA monotonicity invariant verified in fdia_deep_hypothesis.test.mjs)", () => {
   const gk = new FDIAGatekeeper();
   const intent = "calculate the total tax owed on an annual salary of one million Thai baht for a resident taxpayer";
-  const withoutContext = gk.validate({ intent }); // I=1.0
-  // With context, I rises to 1.2; since data_quality here is < 1, a higher
-  // exponent means a LOWER score (D^1.2 < D^1.0) — this initially looked
-  // like a bug in this test until the FDIA math invariant (H1d: F
-  // non-increasing in I for D<1) was re-checked against it. Uses a longer
-  // intent than the first draft of this test so data_quality stays well
-  // above the 0.5 threshold at I=1.2 too (the first draft's shorter intent
-  // crossed the threshold and threw instead of returning, which is how this
-  // direction mistake was caught).
+  const withoutContext = gk.validate({ intent });
   const withContext = gk.validate({ intent, context: { income: 1000000, country: "TH" } });
+
+  // This is the actual conveyor belt: RCT-7's real alignment score changes,
+  // not just a hardcoded 1.0-vs-1.2 branch on "context present or not".
+  assert.ok(withContext.rct7.verified_alignment_score > withoutContext.rct7.verified_alignment_score,
+    "supplying environment_context must raise RCT-7's grounding_completeness component of its real alignment score");
+  assert.ok(withContext.rct7.stages.length === 7, "the full real 7-stage RCT-7 trail must be present, not a stub");
+
+  // Uses a longer intent so data_quality stays well above the threshold at
+  // both I values (a shorter intent crossed the threshold and threw instead
+  // of returning during earlier drafts of this test).
   assert.notEqual(withoutContext.fdia_score, withContext.fdia_score);
   assert.ok(withContext.fdia_score < withoutContext.fdia_score, "higher intent_precision with data_quality < 1 must lower F, per FDIA's own math");
+});
+
+test("FDIAGatekeeper: the RCT-7-derived intent_precision stays within FDIA's documented [0.5, 2.0] mapping range across vague and highly-specific intents, and is deterministic for the same input", () => {
+  const gk = new FDIAGatekeeper();
+  const vague = gk.validate({ intent: "do it" });
+  const specific = gk.validate({
+    intent: "migrate the legacy PostgreSQL 12 customer database to PostgreSQL 16 with zero downtime",
+    context: { environment: "production", rollback_plan: "documented" },
+  });
+
+  for (const r of [vague, specific]) {
+    const I = 0.5 + r.rct7.verified_alignment_score * 1.5;
+    assert.ok(I >= 0.5 && I <= 2.0, `derived I=${I} must stay within the documented [0.5, 2.0] range`);
+  }
+  assert.ok(specific.rct7.verified_alignment_score > vague.rct7.verified_alignment_score,
+    "a specific, grounded intent must score a real, higher RCT-7 alignment than a 2-word vague one");
+
+  // Determinism: identical input must produce the identical alignment score
+  // and I, every time (no hidden randomness or external call variance).
+  const repeat = gk.validate({ intent: "do it" });
+  assert.equal(repeat.rct7.verified_alignment_score, vague.rct7.verified_alignment_score);
 });
 
 // ============================================================================

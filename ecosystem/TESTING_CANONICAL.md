@@ -16,7 +16,7 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 | `rct_think` | **Real, deterministic heuristics across all 7 stages.** `verified_alignment_score` is computed from grounding completeness, problem specificity, and lexical overlap. Stages 1-6 now also compute real, input-dependent output: sentence splitting (Stage 1), context/problem lexical overlap (Stage 2), conjunction-based sub-task splitting (Stage 3), keyword-taxonomy failure detection (Stage 4), shared-vocabulary intent extraction (Stage 5), and a blueprint built from Stages 3+5 (Stage 6). Explicitly NOT semantic understanding (no LLM call) — see `docs/RCT7_SCORING_SPEC.md` for the full breakdown and documented limitations. | `packages/rct7/src/index.ts`, `docs/RCT7_SCORING_SPEC.md` |
 | `compress_context` | Real dedup + optional keyword filter; SHA-256 hash of real output. `reduction_percentage` is now the **real, unclamped computed value** — it can be negative on already-short/unique input or exceed the old 91.5% figure on highly repetitive input. The 74.2%-91.5% range was a specific benchmark result, not a guarantee, and is no longer enforced. | `packages/delta/src/index.ts` |
 | `orchestrate_swarm` | Real objective→pillar keyword routing and delta math. `assigned_pillars` now tags each pillar `role: "primary"` (the one actually routed to, with an objective-specific subtask) or `role: "support"` (standing role only, explicitly labeled as not engaged for this objective) — no longer 4 identical objective-specific claims. `expected_vram_switch_ms` remains a static per-pillar design target (no LoRA runtime exists in this codebase) but is now clearly documented as such. | `packages/jitna/src/index.ts`, `packages/shared/src/jitna-types.ts` |
-| `run_intent_loop` (new, 2026-09-12) | Real 5-stage pipeline consolidated from the most-developed of 4-5 diverged Python `loop_engine.py` copies found across the ecosystem. Gate reuses the hardened `evaluateFDIA`; memory is real Jaccard-similarity caching; **execute and verify now make real HTTP calls to real OpenRouter free-tier models** — replacing the Python original's two hardcoded-success stubs (`await sleep(0.1)` + fixed "Processed: {intent}" string; `votes = [True, True, True]` always-pass consensus). Verified against a live model end-to-end (see "Live intent-loop verification" below), not just unit-tested against a mock. | `packages/intent-loop/src/index.ts` |
+| `run_intent_loop` (new, 2026-09-12) | Real 5-stage pipeline consolidated from the most-developed of 4-5 diverged Python `loop_engine.py` copies found across the ecosystem. Gate reuses the hardened `evaluateFDIA`; memory is real Jaccard-similarity caching; **execute and verify now make real HTTP calls to real OpenRouter free-tier models** — replacing the Python original's two hardcoded-success stubs (`await sleep(0.1)` + fixed "Processed: {intent}" string; `votes = [True, True, True]` always-pass consensus). Verified against a live model end-to-end (see "Live intent-loop verification" below), not just unit-tested against a mock. **2026-09-12, later same day**: the gate's `intent_precision` (FDIA's `I`) is now synthesized from a real call to `executeRCT7()` instead of a standalone word-count heuristic — the first place anywhere in the ecosystem where RCT-7's actual decomposition output feeds FDIA's `I` parameter. See "RCT-7 → FDIA intent_precision synthesis" below. | `packages/intent-loop/src/index.ts` |
 
 ## Test suite
 
@@ -112,6 +112,63 @@ Registry via a new GitHub Actions OIDC workflow (`delentia-mcp/.github/workflows
 namespace regardless of membership visibility; OIDC proves org ownership
 cryptographically. Independently confirmed via `registry.modelcontextprotocol.io`'s
 public API.
+
+## RCT-7 → FDIA intent_precision synthesis (2026-09-12)
+
+Background: the whole point of FDIA's `I` (Intent Precision) parameter, per
+the project's original design intent, was to be a value *extracted from*
+decomposing the caller's actual intent — not a constant the caller hands in.
+Before this change, every real implementation of FDIA anywhere in the
+ecosystem (this repo's `evaluate_fdia`, the Python `core/fdia/fdia.py`
+scorer, `algorithm_kernel_41.py`'s `algo_01_fdia`) took `I` as a plain
+caller-supplied number. RCT-7 (`rct_think`/`executeRCT7`) — the component
+that actually performs real, tested, input-dependent intent decomposition —
+was never wired to produce it.
+
+**What changed**: `FDIAGatekeeper.validate()` in `packages/intent-loop/src/index.ts`
+now calls the real `executeRCT7()` from `@delentia/mcp-rct7` on every intent,
+and derives `intent_precision` from its real `verified_alignment_score`
+(0-1, itself a real computation from grounding completeness + problem
+specificity + lexical overlap — see `docs/RCT7_SCORING_SPEC.md`):
+
+```
+I = 0.5 + verified_alignment_score * 1.5    // range [0.5, 2.0]
+```
+
+`0.5` is FDIA's own schema floor; `2.0` is a deliberate design ceiling, not
+derived from anything else. Semantics: a vague, ungrounded intent (low
+alignment) gets the most lenient exponent — `F=D^I` shrinks slower for
+imprecise data, matching "we don't understand this well enough to be
+strict about data quality either." A precisely-grounded intent (high
+alignment) gets a stricter exponent — weak supporting data is punished
+harder, matching "we understand exactly what's being asked, so weak data
+is less excusable." `data_quality` (D) is deliberately left as a separate,
+independent heuristic — RCT-7 measures how well-specified the *intent* is,
+not how sufficient the *data backing the action* is; conflating the two
+would blur what each FDIA parameter means.
+
+**Verified real, not just wired**:
+- Offline: `tests/intent_loop.test.mjs` proves the derived `I` is
+  input-dependent (a 2-word vague intent scores a real, lower alignment
+  than a grounded, specific one), deterministic (same input -> same score,
+  every call), and stays within the documented [0.5, 2.0] range.
+- Live, against real OpenRouter models: a destructive intent's rejection
+  message itself now includes the real numbers —
+  `[RCT-7 alignment=0.125, derived I=0.6875]` — visible directly in
+  `TestCLICompile`-style output, not just internal state.
+- **Performance**: measured 3,000 real `validate()` calls (RCT-7 execution +
+  FDIA evaluation, no network) at an average of **0.0145ms per call**. The
+  new synthesis step adds effectively zero latency — all real-world latency
+  observed in the live end-to-end test (~3.7-4.1s) came entirely from the
+  2 actual network round trips (specialist execute + 3-model consensus
+  verify), not from RCT-7 or FDIA.
+
+**Known limitation, disclosed rather than hidden**: this closes the loop
+within `packages/intent-loop` specifically. The other 4 pillar workers
+(`fdia`, `rct7`, `delta`, `jitna` standalone deployments) and the Python
+`rct_control_plane` side still take `I`/`intent_precision` as a plain
+caller-supplied number — this synthesis is not yet the ecosystem-wide
+default, only the new intent-loop package's behavior.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

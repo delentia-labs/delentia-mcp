@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-12, part 3)
+
+- [x] **Closed the loop between RCT-7 and FDIA.** `packages/intent-loop`'s `FDIAGatekeeper.validate()` now derives FDIA's `intent_precision` (I) from a real call to `executeRCT7()`'s `verified_alignment_score`, instead of a caller-supplied constant or an unrelated heuristic — the original design intent for this whole ecosystem (I extracted from decomposing the caller's actual intent, not handed in) implemented for the first time anywhere in the codebase. See `TESTING_CANONICAL.md`'s "RCT-7 → FDIA intent_precision synthesis" section for the exact mapping, live verification against real models, and a real performance measurement (0.0145ms/call average — the synthesis adds no meaningful latency).
+- [ ] This synthesis is intent-loop-only so far. Extending it to the standalone `fdia`/`sovereign` workers (which currently take `intent_precision` as a plain request field) and to the Python `rct_control_plane`/`intent_compiler.py` side is real follow-up work, not done in this pass — each has its own calling contract that would need a deliberate compatibility decision (e.g., an optional `problem_statement` input that triggers RCT-7 synthesis when present, falling back to the explicit `intent_precision` field when absent, so existing callers aren't broken).
+
 ## Done (2026-09-12, part 2)
 
 - [x] Consolidated Intent Loop into `packages/intent-loop` (new `@delentia/mcp-intent-loop` package, `run_intent_loop` MCP tool) from the most-developed of 4-5 diverged Python `loop_engine.py` copies found across the ecosystem on 2026-09-11. Reuses the hardened `evaluateFDIA` for its gate (no second FDIA implementation). Replaced both of the Python original's hardcoded-success stubs with real logic: `execute()` now makes real calls to real OpenRouter free-tier models, `verify()` now runs a real 3-model consensus vote. Verified end-to-end against live models, not just mocked — see `TESTING_CANONICAL.md`'s "Live intent-loop verification" section. 15 new deterministic tests + a separate live-network test script.
