@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@delentia/shared": "*",
+    "@delentia/mcp-rct7": "*",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "zod": "^3.24.2"
   },

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (2026-09-12, part 5) — Tier 1 (fdia worker) + Tier 2 (MEE growth from real verifier confidence)
+
+### Added — Tier 1: RCT-7 synthesis extended to the standalone `fdia` worker
+- `packages/fdia/src/worker.ts`'s `evaluate_fdia` handler gains the same optional `problem_statement` -> RCT-7 synthesis as `sovereign` and `intent-loop`. Unlike `sovereign`, this worker did not already bundle RCT-7 — `@delentia/mcp-rct7` was added as a genuinely new dependency, and root `build` script reordered (`build:rct7` now runs before `build:fdia`) since the new import requires it.
+- `tests/fdia_worker_rct7_synthesis.test.mjs` — 6 new tests calling the worker's real `fetch` handler directly, including one that deliberately omits the `FDIA_SESSION_DO` binding to exercise the worker's own graceful-fallback path for real (a fresh deployment's first request), not just in principle.
+
+### Added — Tier 2: MEE growth now driven by the ConsensusVerifier's real confidence
+- New `MEEGrowthTracker` class in `packages/intent-loop/src/index.ts` — a from-scratch TypeScript port of `Delentia-OS/rct_control_plane/mee_engine.py`'s real, tested growth formula (`G(t+1) = G(t) x (1+MΔ) x R_t`), necessary because this package deploys to Cloudflare Workers, which has no Python runtime and no path to call the Python engine directly. **Verified numerical parity against the actual Python module**: an identical 8-step delta/violation sequence run through both implementations matched to 6 decimal places on every step's `g_after` and `resilience`, not just the final value.
+- `IntentLoopEngine` now steps this tracker using `confidenceToGrowthDelta(verification.confidence)` — the real post-execution multi-model consensus confidence, not the pre-execution FDIA score (which already had its own place, unmodified, as `intent_precision`). A failed consensus counts as a `governance_violation` (resilience degrades), matching `mee_engine.py`'s semantics exactly. A cache hit or an FDIA gate rejection deliberately does NOT step growth — neither produces new evidence of execution quality; an all-models-failed execution DOES step growth (fixed delta -1, `governance_violation: true`), since that is itself a real quality signal worth tracking.
+- `IntentResult.mee_step` and `IntentLoopMetrics.mee_growth` expose the real growth state on every response where it advanced.
+- 9 new deterministic tests plus a re-run of the live end-to-end test against real OpenRouter models: G genuinely grew 1.0 -> 1.1 -> 1.21 across 2 real, unanimously-verified (3/3 real consensus) executions in the same live run that also correctly did NOT step growth on a destructive-intent gate rejection or a cache hit. Full detail in `TESTING_CANONICAL.md`.
+
 ## Unreleased (2026-09-12, part 4) — RCT-7 synthesis extended to the sovereign worker
 
 ### Added

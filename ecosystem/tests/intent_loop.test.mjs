@@ -25,6 +25,8 @@ import {
   SecurityViolation,
   IntentLoopEngine,
   ROLE_MODEL_MAP,
+  MEEGrowthTracker,
+  confidenceToGrowthDelta,
 } from "../packages/intent-loop/dist/index.js";
 
 // ============================================================================
@@ -282,4 +284,105 @@ test("IntentLoopEngine: if every verifier model errors after a successful execut
   assert.equal(result.verification.passed, false);
   assert.equal(result.verification.confidence, 0);
   assert.ok(result.verification.votes.every((v) => v.agree === null));
+});
+
+// ============================================================================
+// MEE Growth Tracker — TS port of mee_engine.py's real formula, driven by
+// the ConsensusVerifier's real confidence (not just the pre-execution FDIA
+// score). Numerical parity against the actual Python module was verified
+// manually this session (8-step sequence matched to 6 decimal places,
+// including resilience and growth_ratio) — these tests lock in the TS side.
+// ============================================================================
+
+test("MEEGrowthTracker: formula matches mee_engine.py exactly — G(t+1) = G(t) x (1+MΔ) x R_t, verified against known Python output for this exact step sequence", () => {
+  const tracker = new MEEGrowthTracker();
+  const deltas = [0.3, -0.2, 0.6, -0.9, 0.1, 0.4, -0.4, 0.8];
+  const violations = [false, true, false, true, false, false, true, false];
+  // Expected values are the REAL output of Delentia-OS/rct_control_plane/mee_engine.py's
+  // MEESession for this identical sequence, captured 2026-09-12 (parity check).
+  const expectedGAfter = [1.03, 0.989212, 1.032836, 0.906985, 0.888573, 0.901013, 0.826049, 0.856448];
+  const expectedResilience = [1.0, 0.98, 0.985, 0.965, 0.97, 0.975, 0.955, 0.96];
+
+  for (let i = 0; i < deltas.length; i++) {
+    const r = tracker.step(deltas[i], violations[i]);
+    assert.ok(Math.abs(r.g_after - expectedGAfter[i]) < 1e-6, `step ${i + 1}: g_after=${r.g_after} must match Python's ${expectedGAfter[i]}`);
+    assert.ok(Math.abs(r.resilience - expectedResilience[i]) < 1e-6, `step ${i + 1}: resilience=${r.resilience} must match Python's ${expectedResilience[i]}`);
+  }
+  const summary = tracker.summary();
+  assert.ok(Math.abs(summary.g_current - 0.8564476730078245) < 1e-9);
+});
+
+test("MEEGrowthTracker: G never drops below G_FLOOR (0.1) even under many consecutive violations", () => {
+  const tracker = new MEEGrowthTracker();
+  for (let i = 0; i < 200; i++) tracker.step(-1, true);
+  assert.ok(tracker.value >= 0.1);
+});
+
+test("MEEGrowthTracker: resilience never drops below its own floor (0.5) or exceeds 1.0", () => {
+  const tracker = new MEEGrowthTracker();
+  for (let i = 0; i < 200; i++) tracker.step(0, true);
+  assert.ok(tracker.currentResilience >= 0.5);
+  for (let i = 0; i < 200; i++) tracker.step(0, false);
+  assert.ok(tracker.currentResilience <= 1.0);
+});
+
+test("confidenceToGrowthDelta: maps [0,1] confidence to [-1,1] delta linearly, 0.5 -> exactly 0", () => {
+  assert.equal(confidenceToGrowthDelta(1.0), 1);
+  assert.equal(confidenceToGrowthDelta(0.0), -1);
+  assert.equal(confidenceToGrowthDelta(0.5), 0);
+  assert.ok(Math.abs(confidenceToGrowthDelta(2 / 3) - 0.3333333333333333) < 1e-9);
+});
+
+test("IntentLoopEngine: a successful completion steps real MEE growth with a positive delta derived from real verifier confidence (not the FDIA score)", async () => {
+  const fetchImpl = fakeFetchSequence(["A correct, on-topic answer.", "YES", "YES", "YES"]);
+  const engine = new IntentLoopEngine({ apiKey: "fake-key-for-test", fetchImpl });
+  const result = await engine.process({ intent: "explain how photosynthesis works" });
+  assert.equal(result.state, "completed");
+  assert.ok(result.mee_step, "a completed run must include a real mee_step");
+  assert.equal(result.mee_step.delta, confidenceToGrowthDelta(1), "delta must come from verifier confidence (1.0 here), not fdia_score");
+  assert.equal(result.mee_step.governance_violation, false);
+  assert.ok(result.mee_step.g_after > result.mee_step.g_before, "3/3 agreement must grow G");
+
+  const metrics = engine.getMetrics();
+  assert.equal(metrics.mee_growth.steps, 1);
+  assert.equal(metrics.mee_growth.g_current, result.mee_step.g_after);
+});
+
+test("IntentLoopEngine: a failed verification steps real MEE growth with a negative delta AND counts as a governance_violation (resilience degrades)", async () => {
+  const fetchImpl = fakeFetchSequence(["An answer.", "NO", "NO", "NO"]);
+  const engine = new IntentLoopEngine({ apiKey: "fake-key-for-test", fetchImpl });
+  const result = await engine.process({ intent: "write a short poem about the ocean" });
+  assert.equal(result.state, "failed");
+  assert.ok(result.mee_step);
+  assert.equal(result.mee_step.delta, confidenceToGrowthDelta(0), "0/3 agreement -> delta -1");
+  assert.equal(result.mee_step.governance_violation, true);
+  assert.ok(result.mee_step.g_after < result.mee_step.g_before, "0/3 agreement must shrink G");
+});
+
+test("IntentLoopEngine: when every candidate specialist model fails (no verification ever ran), growth still steps with a fixed negative delta and a real governance_violation", async () => {
+  const fetchImpl = fakeFetchAlwaysErrors();
+  const engine = new IntentLoopEngine({ apiKey: "fake-key-for-test", fetchImpl });
+  const result = await engine.process({ intent: "what is the capital of France" });
+  assert.equal(result.state, "failed");
+  assert.ok(result.mee_step);
+  assert.equal(result.mee_step.delta, -1);
+  assert.equal(result.mee_step.governance_violation, true);
+});
+
+test("IntentLoopEngine: a cache hit does NOT step MEE growth (no new execution/verification evidence was produced) — a gate rejection also does not step it (pure security block, not an execution-quality signal)", async () => {
+  const fetchImpl = fakeFetchSequence(["Answer.", "YES", "YES", "YES"]);
+  const engine = new IntentLoopEngine({ apiKey: "fake-key-for-test", fetchImpl });
+
+  const rejected = await engine.process({ intent: "drop the production database table" });
+  assert.equal(rejected.mee_step, undefined, "a gate rejection must not step growth");
+  assert.equal(engine.getMetrics().mee_growth.steps, 0);
+
+  const packet = { intent: "what year did the French Revolution begin" };
+  const first = await engine.process(packet);
+  assert.equal(engine.getMetrics().mee_growth.steps, 1, "the real first execution must step growth exactly once");
+
+  const second = await engine.process(packet);
+  assert.equal(second.cache_hit, true);
+  assert.equal(second.mee_step, undefined, "a cache hit must not step growth again");
+  assert.equal(engine.getMetrics().mee_growth.steps, 1, "growth step count must stay at 1 after a cache hit");
 });

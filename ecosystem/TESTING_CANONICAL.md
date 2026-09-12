@@ -20,16 +20,19 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
 ## Test suite
 
-77 tests across 5 files, all passing as of 2026-09-12 (`npm run test:all`):
+97 tests across 7 files, all passing as of 2026-09-12 (`npm run test:all`):
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
 `tests/test_fdia_policy_engine.mjs` (14), `tests/fdia_deep_hypothesis.test.mjs`
-(24), `tests/intent_loop.test.mjs` (15, new — deterministic, offline suite
-for the new intent-loop package, using an injected fake `fetch` so CI never
-depends on a live network call or API key). A SEPARATE, non-CI script,
-`tests/intent_loop_live.test.mjs` (run via `npm run test:intent-loop:live`
-with `OPENROUTER_API_KEY` set), makes real calls to real OpenRouter free-tier
-models — see "Live intent-loop verification" below for its actual output.
-Includes explicit regression tests
+(24), `tests/intent_loop.test.mjs` (24 — deterministic, offline suite for the
+intent-loop package, using an injected fake `fetch` so CI never depends on a
+live network call or API key; includes the FDIA<->RCT-7 synthesis and MEE
+growth-tracker regression tests), `tests/sovereign_rct7_synthesis.test.mjs`
+(5) and `tests/fdia_worker_rct7_synthesis.test.mjs` (6) — both call their
+respective worker's real `fetch` handler directly, not a mock. A SEPARATE,
+non-CI script, `tests/intent_loop_live.test.mjs` (run via
+`npm run test:intent-loop:live` with `OPENROUTER_API_KEY` set), makes real
+calls to real OpenRouter free-tier models — see "Live intent-loop
+verification" below for its actual output. Includes explicit regression tests
 for every behavior change above (real RCT-7 score varies + is deterministic,
 all 7 RCT-7 stages produce different output on different input including a
 specific "Node.js must not be split on its period" regression, FDIA fails
@@ -183,14 +186,82 @@ backward-compatibility cases and the new synthesis path, including that a
 destructive `action_name` is still blocked by its own independent gate
 regardless of RCT-7's score.
 
-**Known limitation, disclosed rather than hidden**: the remaining 3 pillar
-workers (`fdia`, `rct7`, `delta`, `jitna` standalone deployments) and the
-Python `rct_control_plane` side still take `I`/`intent_precision` as a
-plain caller-supplied number — this synthesis now covers `intent-loop` and
-`sovereign` but is not yet the ecosystem-wide default. Extending it to the
-standalone `fdia` worker specifically would require adding `@delentia/mcp-rct7`
-as a new cross-package dependency there (unlike `sovereign`, which already
-had it) — a slightly larger, deliberately deferred change.
+**Extended to the standalone `fdia` worker (2026-09-12, Tier 1 complete)**:
+unlike `sovereign`, this worker did not already import RCT-7 —
+`@delentia/mcp-rct7` was added as a genuinely new dependency, and the root
+`build` script was reordered (`build:rct7` now runs before `build:fdia`)
+since the compiled output now depends on it. Same optional
+`problem_statement` contract, same backward-compatibility guarantee,
+verified with 6 new tests calling the worker's real `fetch` handler
+directly — including one that omits the `FDIA_SESSION_DO` binding entirely
+to prove the worker's own try/catch fallback around its Durable Object
+calls is exercised for real (this is what a fresh deployment's very first
+request looks like, before any session has ever been created). All 3 TS
+deployments that expose `evaluate_fdia` (`intent-loop`, `sovereign`, `fdia`)
+now support the identical RCT-7 synthesis contract.
+
+**Known limitation, disclosed rather than hidden**: the `rct7`/`delta`/`jitna`
+standalone deployments don't expose `evaluate_fdia` at all, so there is
+nothing to synthesize into there. The Python `rct_control_plane` side
+(`intent_compiler.py` + its own FDIA scorer) is a separate runtime entirely
+and still takes `intent_precision` as a plain field — porting this
+synthesis there needs its own design, not a copy of the TS approach.
+
+## MEE growth now driven by the ConsensusVerifier's real confidence (2026-09-12, Tier 2)
+
+Background: MEE (`Delentia-OS/rct_control_plane/mee_engine.py`) was found
+orphaned earlier this session, then wired into `algorithm_kernel_41.py`'s
+ALGO-07 slot using each pipeline run's FDIA score as its growth signal.
+That signal answers "how well did we understand the intent going in" —
+useful, but the SAME question FDIA's `I` already answers. A genuinely
+different, complementary signal exists in `packages/intent-loop`'s
+`ConsensusVerifier`: real post-execution agreement from independent models
+answering "did what we actually produced hold up." Cloudflare Workers has
+no Python runtime and no path to call `mee_engine.py` directly, so this
+is a from-scratch **TypeScript port of the identical formula and
+constants** (`G(t+1) = G(t) x (1+MΔ) x R_t`, same `M=0.1`,
+`RESILIENCE_PENALTY=0.02`, `RESILIENCE_RECOVERY=0.005`, `G_FLOOR=0.1`,
+`G_CAP=1000`) — `MEEGrowthTracker` in `packages/intent-loop/src/index.ts`.
+
+**Verified numerical parity against the real Python module**: ran an
+identical 8-step sequence of deltas/violations through both
+`MEEGrowthTracker.step()` and the actual `MEESession.step()` from
+`mee_engine.py`. Every single step's `g_after` and `resilience` matched to
+6 decimal places (not just the final value) — e.g. step 4:
+TS `g_after=0.906985, resilience=0.9650` vs Python
+`g_after=0.906985, resilience=0.9650`, identically, all 8 steps. This is
+locked in as a permanent regression test in `tests/intent_loop.test.mjs`.
+
+**Wiring**: `IntentLoopEngine` steps the tracker with
+`confidenceToGrowthDelta(verification.confidence)` (linear map:
+confidence 1.0 -> delta +1, confidence 0.0 -> delta -1, confidence 0.5 ->
+delta 0) whenever real execution was attempted:
+- A **successful completion** steps growth positively, `governance_violation: false`.
+- A **failed consensus** (verification didn't pass) steps growth negatively, `governance_violation: true` — resilience degrades, exactly matching `mee_engine.py`'s semantics for a governance violation.
+- **Every candidate specialist model failing** (no verification ever ran) still steps growth, with a fixed `delta: -1` and `governance_violation: true` — a real infrastructure-quality signal, not silently skipped.
+- A **cache hit** does NOT step growth — no new execution happened, so there is no new evidence of quality either way.
+- An **FDIA gate rejection** does NOT step growth — a pure security block is a different kind of event than an execution-quality signal, and conflating the two would make the growth metric mean two different things depending on why a request failed.
+
+**Verified real, live**: re-ran `tests/intent_loop_live.test.mjs` against
+real OpenRouter models. Across 4 real requests (1 destructive rejection, 1
+fresh execution, 1 cache-hit repeat, 1 second fresh execution routed to a
+different specialist role), `mee_growth.steps` correctly ended at exactly
+**2** (only the 2 genuinely fresh executions, both with real unanimous 3/3
+consensus), and `G` genuinely grew **1.0 -> 1.1 -> 1.21** across those 2
+real steps — not a fixed or simulated trajectory.
+
+9 new deterministic tests in `tests/intent_loop.test.mjs` cover the formula
+parity, the floor/cap bounds under sustained violations, the
+confidence-to-delta mapping, and each of the 5 wiring cases above
+individually (success grows it, failed verification shrinks it, all-models-failing
+still steps it, cache hit doesn't step it, gate rejection doesn't step it).
+
+**Known limitation, disclosed rather than hidden**: this confidence-driven
+growth signal exists only in `packages/intent-loop`. `sovereign` and `fdia`
+don't run a multi-step orchestration loop with a memory layer to attach
+persistent growth state to — extending this there would need its own
+design (e.g., a Durable-Object-backed growth session), not a copy-paste of
+this package's in-process approach.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

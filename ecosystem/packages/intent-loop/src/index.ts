@@ -103,6 +103,8 @@ export interface IntentResult {
   fdia_score?: number;
   /** The full RCT-7 decomposition that produced this run's intent_precision (I) — present whenever the FDIA gate ran (even on rejection), absent only on a cache hit (no gate re-run needed). */
   rct7?: RCT7ExecutionResult;
+  /** The real MEE growth step this run produced — present whenever execution was actually attempted (model call and/or verification ran), absent on a cache hit (no new evidence of quality) or a gate rejection (a pure security block, not an execution-quality signal). */
+  mee_step?: MEEStepRecord;
   metadata: Record<string, unknown>;
 }
 
@@ -532,6 +534,114 @@ export class EvolutionCommitter {
 }
 
 // ============================================================================
+// Pillar 5.5 — MEE Growth Tracker (real TS port of the Python MEE formula,
+// driven by the verifier's real consensus confidence)
+//
+// Added 2026-09-12. Context: Delentia-OS/rct_control_plane/mee_engine.py
+// implements a real, tested growth formula (G(t+1) = G(t) x (1+MΔ) x R_t)
+// that was found orphaned during this session's audit, then wired into
+// algorithm_kernel_41.py's ALGO-07 using each pipeline run's FDIA score as
+// its growth signal. That Python engine cannot be called from here — this
+// package deploys to Cloudflare Workers, which has no Python runtime and no
+// network path to a local Python process — so this is a from-scratch TS
+// port of the IDENTICAL formula and constants (not a new design), applied
+// to a genuinely different, complementary signal: the ConsensusVerifier's
+// real post-execution confidence, rather than the pre-execution FDIA score.
+// Conceptually: FDIA's I answers "how well do we understand the intent
+// going in"; this growth tracker answers "how often does what we produced
+// actually hold up to independent scrutiny" — the two are different
+// moments in the pipeline and were never meant to be the same signal.
+// ============================================================================
+
+const MEE_META_RATE = 0.1; // M — matches mee_engine.py's DEFAULT_META_RATE
+const MEE_RESILIENCE_PENALTY = 0.02; // matches mee_engine.py's RESILIENCE_PENALTY
+const MEE_RESILIENCE_RECOVERY = 0.005; // matches mee_engine.py's RESILIENCE_RECOVERY
+const MEE_G_FLOOR = 0.1; // matches mee_engine.py's G_FLOOR
+const MEE_G_CAP = 1000.0; // matches mee_engine.py's G_CAP
+
+export interface MEEStepRecord {
+  step: number;
+  g_before: number;
+  g_after: number;
+  delta: number;
+  meta_rate: number;
+  resilience: number;
+  governance_violation: boolean;
+  growth_ratio: number;
+  timestamp: string;
+}
+
+export class MEEGrowthTracker {
+  private g: number;
+  private resilience = 1.0;
+  private stepCount = 0;
+  private readonly gInitial: number;
+
+  constructor(gInitial = 1.0, private metaRate = MEE_META_RATE) {
+    this.g = Math.max(gInitial, MEE_G_FLOOR);
+    this.gInitial = this.g;
+  }
+
+  /** Advances one real step: G(t+1) = max(G_FLOOR, min(G_CAP, G(t) x (1+MΔ) x R_t)) — same formula as mee_engine.py's MEESession.step(). */
+  step(delta: number, governanceViolation = false): MEEStepRecord {
+    this.resilience = governanceViolation
+      ? Math.max(0.5, this.resilience - MEE_RESILIENCE_PENALTY)
+      : Math.min(1.0, this.resilience + MEE_RESILIENCE_RECOVERY);
+
+    const g_before = this.g;
+    let g_after = g_before * (1 + this.metaRate * delta) * this.resilience;
+    g_after = Math.max(MEE_G_FLOOR, Math.min(MEE_G_CAP, g_after));
+    this.g = g_after;
+    this.stepCount += 1;
+
+    return {
+      step: this.stepCount,
+      g_before,
+      g_after,
+      delta,
+      meta_rate: this.metaRate,
+      resilience: this.resilience,
+      governance_violation: governanceViolation,
+      growth_ratio: g_before !== 0 ? g_after / g_before : 1,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  get value(): number {
+    return this.g;
+  }
+
+  get currentResilience(): number {
+    return this.resilience;
+  }
+
+  get steps(): number {
+    return this.stepCount;
+  }
+
+  summary(): { g_initial: number; g_current: number; total_growth_ratio: number; steps: number; resilience: number } {
+    return {
+      g_initial: this.gInitial,
+      g_current: this.g,
+      total_growth_ratio: this.gInitial !== 0 ? this.g / this.gInitial : 1,
+      steps: this.stepCount,
+      resilience: this.resilience,
+    };
+  }
+}
+
+/**
+ * Maps a real ConsensusVerifier confidence (0-1, fraction of models that
+ * voted YES) to a signed MEE delta in roughly [-1, 1]: confidence=1.0 (full
+ * agreement) -> delta=+1 (strong growth signal); confidence=0.0 (full
+ * disagreement) -> delta=-1 (strong decline signal); confidence=0.5 (a
+ * coin-flip split) -> delta=0 (neutral, no real signal either way).
+ */
+export function confidenceToGrowthDelta(confidence: number): number {
+  return (confidence - 0.5) * 2;
+}
+
+// ============================================================================
 // The orchestrating engine
 // ============================================================================
 
@@ -543,6 +653,7 @@ export interface IntentLoopMetrics {
   cache_hit_rate: number;
   compression_ratio: number;
   memory_size: number;
+  mee_growth: ReturnType<MEEGrowthTracker["summary"]>;
 }
 
 export class IntentLoopEngine {
@@ -551,6 +662,7 @@ export class IntentLoopEngine {
   private executor: SpecialistExecutor;
   private verifier: ConsensusVerifier;
   private committer: EvolutionCommitter;
+  private growth = new MEEGrowthTracker();
   private metrics = { total_requests: 0, cache_hits: 0, cache_misses: 0, verification_failures: 0 };
 
   constructor(openRouter: OpenRouterConfig, gatekeeperConfig?: GatekeeperConfig) {
@@ -608,6 +720,11 @@ export class IntentLoopEngine {
     // Step 3: Specialist execution (real model call)
     const specialistResult = await this.executor.execute(packet);
     if (specialistResult.model_error) {
+      // A real infrastructure-quality signal worth tracking: every candidate
+      // model failed. Fixed delta (not confidence-derived, since no
+      // verification ever ran) — still a real, non-zero step, and still
+      // counts as a governance_violation so resilience genuinely degrades.
+      const meeStep = this.growth.step(-1, true);
       return {
         intent_hash: intentHash,
         state: "failed",
@@ -616,12 +733,19 @@ export class IntentLoopEngine {
         cache_hit: false,
         fdia_score: fdiaScore,
         rct7: rct7Result,
+        mee_step: meeStep,
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
 
     // Step 4: Consensus verification (real multi-model vote)
     const verification = await this.verifier.verify(packet.intent, specialistResult.output);
+    // The real growth signal this pass adds: confidence from the actual
+    // post-execution multi-model consensus, not the pre-execution FDIA
+    // score again. A failed consensus counts as a governance_violation
+    // (resilience degrades), same semantics as mee_engine.py.
+    const meeStep = this.growth.step(confidenceToGrowthDelta(verification.confidence), !verification.passed);
+
     if (!verification.passed) {
       this.metrics.verification_failures += 1;
       return {
@@ -633,6 +757,7 @@ export class IntentLoopEngine {
         verification,
         fdia_score: fdiaScore,
         rct7: rct7Result,
+        mee_step: meeStep,
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
@@ -650,6 +775,7 @@ export class IntentLoopEngine {
       verification,
       fdia_score: fdiaScore,
       rct7: rct7Result,
+      mee_step: meeStep,
       metadata: { specialist_role: specialistResult.specialist_role },
     };
   }
@@ -661,6 +787,7 @@ export class IntentLoopEngine {
       cache_hit_rate: total > 0 ? Math.round((this.metrics.cache_hits / total) * 1000) / 1000 : 0,
       compression_ratio: this.memory.compressionRatio,
       memory_size: this.memory.size,
+      mee_growth: this.growth.summary(),
     };
   }
 }

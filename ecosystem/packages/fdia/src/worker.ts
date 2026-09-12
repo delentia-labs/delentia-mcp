@@ -10,6 +10,7 @@ import {
   createSessionToken,
   verifySessionToken,
 } from "@delentia/shared";
+import { executeRCT7 } from "@delentia/mcp-rct7";
 export { FDIASessionDO } from "./session-do.js";
 
 interface Env {
@@ -330,9 +331,27 @@ export default {
             activePolicy = workersEngine.getPolicy();
           }
 
+          // Optional RCT-7 -> intent_precision synthesis (added 2026-09-12,
+          // same design as packages/intent-loop and packages/sovereign).
+          // Backward compatible by construction: callers who never pass
+          // `problem_statement` get byte-identical behavior to before —
+          // intent_precision still falls back to their own value or 1.0.
+          // Unlike `sovereign`, this worker did not already bundle RCT-7;
+          // @delentia/mcp-rct7 was added as a genuine new dependency here.
+          let rct7Trail: ReturnType<typeof executeRCT7> | undefined;
+          let intentPrecision: number = args.intent_precision ?? 1.0;
+          if (typeof args.problem_statement === "string" && args.problem_statement.trim().length > 0) {
+            rct7Trail = executeRCT7({
+              problem_statement: args.problem_statement,
+              environment_context: args.environment_context,
+              target_desired_outcome: args.target_desired_outcome,
+            });
+            intentPrecision = Math.round((0.5 + rct7Trail.verified_alignment_score * 1.5) * 10000) / 10000;
+          }
+
           const params: FDIARequest = {
             data_quality: args.data_quality ?? 0.85,
-            intent_precision: args.intent_precision ?? 1.0,
+            intent_precision: intentPrecision,
             authorized: args.authorized ?? true,
             action_name: args.action_name ?? "unnamed_action",
             target_payload: args.target_payload,
@@ -343,7 +362,10 @@ export default {
             custom_policy: activePolicy,
           };
 
-          const result = evaluateFDIA(params);
+          const result = {
+            ...evaluateFDIA(params),
+            ...(rct7Trail ? { rct7_synthesis: { verified_alignment_score: rct7Trail.verified_alignment_score, derived_intent_precision: intentPrecision } } : {}),
+          };
 
           // Asynchronously record audit log in Durable Object
           try {
@@ -385,7 +407,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); a SECURITY_* verdict means A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (plan first, then evaluate_fdia on the resulting concrete action).",
+                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); a SECURITY_* verdict means A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (plan first, then evaluate_fdia on the resulting concrete action). OPTIONAL RCT-7 SYNTHESIS: pass `problem_statement` (and optionally `environment_context`/`target_desired_outcome`) instead of `intent_precision` to have this worker run the real RCT-7 7-stage decomposition and derive intent_precision from its actual alignment score (range 0.5-2.0) rather than you supplying an arbitrary number — the response then includes an `rct7_synthesis` field. Omit `problem_statement` for byte-identical behavior to before this option existed.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -398,7 +420,19 @@ export default {
                         intent_precision: {
                           type: "number",
                           minimum: 1.0,
-                          description: "I (Intent Precision): Precision exponent amplifying data towards authentic goal (>= 1.0).",
+                          description: "I (Intent Precision): Precision exponent amplifying data towards authentic goal (>= 1.0). Ignored if `problem_statement` is also supplied — that triggers real RCT-7 synthesis instead.",
+                        },
+                        problem_statement: {
+                          type: "string",
+                          description: "Optional: the natural-language intent behind this action. When supplied, intent_precision is derived from a real RCT-7 decomposition instead of the intent_precision field above.",
+                        },
+                        environment_context: {
+                          type: "string",
+                          description: "Optional, only used with problem_statement: context/telemetry that feeds RCT-7's grounding_completeness signal.",
+                        },
+                        target_desired_outcome: {
+                          type: "string",
+                          description: "Optional, only used with problem_statement: the desired end state, feeding RCT-7's lexical_alignment signal.",
                         },
                         authorized: {
                           type: "boolean",
