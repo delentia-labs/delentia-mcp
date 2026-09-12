@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (2026-09-12, part 2) — Intent Loop consolidated into the MCP ecosystem
+
+### Added
+- `packages/intent-loop` — new package (`@delentia/mcp-intent-loop`), consolidated from the most-developed of 4-5 diverged Python `loop_engine.py` copies found scattered across `Delentia-OS`, `the private services repo`, and `Delentia-Infra-Public` (per the 2026-09-11 audit). Same 5-pillar design (FDIA gate -> memory recall -> specialist execute -> consensus verify -> commit), but: (1) the gate reuses this repo's own hardened `evaluateFDIA` instead of re-implementing FDIA a second time, (2) `execute()` makes a real HTTP call to a real OpenRouter free-tier model instead of `await sleep(0.1)` + a hardcoded string, (3) `verify()` asks 3 different real free-tier models to independently vote and requires a real majority, instead of a hardcoded `votes = [True, True, True]`.
+- `tests/intent_loop.test.mjs` — 15 deterministic tests (fake-fetch injected, no network/API key needed, safe for CI): gatekeeper reuse of the hardened FDIA engine, real Jaccard-similarity memory recall, real routing, and the full pipeline including verification-failure and all-models-failed paths.
+- `tests/intent_loop_live.test.mjs` (`npm run test:intent-loop:live`) — a separate, non-CI script that makes real calls to real OpenRouter free-tier models. Actually run on 2026-09-12: real model call produced a correct answer, real 3-model consensus vote passed 2/3 (1 model contributed no vote rather than being miscounted as agreement), a destructive intent was rejected by the real FDIA gate with zero network calls, an identical repeat intent hit the real cache (1ms vs 3,675ms). Full detail in `TESTING_CANONICAL.md`.
+- `run_intent_loop` MCP tool exposed via `packages/intent-loop/src/worker.ts`, following the same tool-per-package pattern as the other 5 tools. Not yet deployed to Cloudflare Workers as of this entry (built and tested locally only).
+
+### Fixed (bugs found in this new code while getting it to actually work against real models)
+- The free-text-to-`action_name` mapping originally prefixed destructive intents with `"write_"`, which matched FDIA's permissive CONDITIONAL rule instead of its DATABASE-DESTRUCTIVE-BLOCK rule — `"drop the production database table"` was silently `AUTHORIZED`. Fixed to use the actual destructive verb as the action-name prefix.
+- The consensus verifier used `max_tokens: 20` for each model's yes/no judgment; several free-tier OpenRouter models are reasoning models that consume the whole token budget on hidden reasoning before any visible answer, so verification failed nearly every time with empty responses. Raised to 250 and switched to parsing the last yes/no token in the reply rather than checking for bare word presence.
+
+### Known, disclosed, NOT fixed in this pass
+- `MemoryLayer`'s cache is an in-process `Map`, isolate-scoped — it will not survive a Cloudflare Workers isolate recycle or span multiple isolates once deployed. Same class of gap as the existing global-Durable-Object issue already tracked in `ROADMAP.md` for the other 4 pillar workers.
+- Per-caller/per-session memory scoping (`user_id`/`session_id` inputs exist on the tool schema but are not yet used to partition the cache) is not implemented.
+
 ## Unreleased (2026-09-12)
 
 ### Added

@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delentia-intent-loop-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SERVER_NAME": "Delentia Intent Loop MCP"
+  }
+  // OPENROUTER_API_KEY is a secret, set via `wrangler secret put OPENROUTER_API_KEY`
+  // at deploy time — never committed here. Not deployed yet as of 2026-09-12;
+  // this config exists so `npm run build`/`typecheck` cover this package like
+  // every other pillar worker, deploy is a separate, explicitly-gated step.
+}

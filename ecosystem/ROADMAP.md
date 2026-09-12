@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-12, part 2)
+
+- [x] Consolidated Intent Loop into `packages/intent-loop` (new `@delentia/mcp-intent-loop` package, `run_intent_loop` MCP tool) from the most-developed of 4-5 diverged Python `loop_engine.py` copies found across the ecosystem on 2026-09-11. Reuses the hardened `evaluateFDIA` for its gate (no second FDIA implementation). Replaced both of the Python original's hardcoded-success stubs with real logic: `execute()` now makes real calls to real OpenRouter free-tier models, `verify()` now runs a real 3-model consensus vote. Verified end-to-end against live models, not just mocked — see `TESTING_CANONICAL.md`'s "Live intent-loop verification" section. 15 new deterministic tests + a separate live-network test script.
+- [ ] Not done in this pass, tracked here: per-caller/per-session memory scoping (currently one shared in-process cache per Worker isolate — same class of gap as the global-Durable-Object issue below), Durable-Object-backed persistent memory (currently lost on isolate recycle), and actual deployment of this package (built + tested locally only).
+
 ## Done (2026-09-12)
 
 - [x] Deep adversarial/hypothesis test pass specifically on `evaluate_fdia`'s matching logic (`tests/fdia_deep_hypothesis.test.mjs`, 24 tests) — found and fixed two real rule-matching bugs (first-match-wins letting a broad ALLOW rule shadow a narrower BLOCK rule; whitespace padding defeating anchored pattern matches) and explicitly documented two structural limitations that were not fixed (self-reported `action_name` trust boundary; zero-width-space pattern evasion under a permissive fallback policy). Full detail in `TESTING_CANONICAL.md`'s "Security fixes found via hypothesis testing" section and `CHANGELOG.md`.
