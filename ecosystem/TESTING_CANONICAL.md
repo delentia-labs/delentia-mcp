@@ -5,13 +5,13 @@ MCP tools actually do. If README.md, BENCHMARK_REPORT.md, or any blog/marketing
 copy disagrees with this file, **this file wins** — mirrors the governance
 pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
-**Last verified:** 2026-09-11 (direct source-code read + real test run, not a narrative claim)
+**Last verified:** 2026-09-12 (direct source-code read + real test run, not a narrative claim)
 
 ## Per-tool implementation status
 
 | Tool | Status | Evidence |
 |---|---|---|
-| `evaluate_fdia` | Real computation. `F = (D^I) * A` computed from actual input; `A` dynamically evaluated via policy wildcard rules; SHA-256 audit digest computed from real request data. Now fails closed (returns `SECURITY_POLICY_VIOLATION`, not a NaN-driven false `AUTHORIZED`) on non-finite/negative `data_quality`/`intent_precision`. | `packages/shared/src/fdia-core.ts` |
+| `evaluate_fdia` | Real computation. `F = (D^I) * A` computed from actual input; `A` dynamically evaluated via policy wildcard rules; SHA-256 audit digest computed from real request data. Fails closed (returns `SECURITY_POLICY_VIOLATION`, not a NaN-driven false `AUTHORIZED`) on non-finite/negative `data_quality`/`intent_precision`. **2026-09-12**: found and fixed two real rule-matching bugs via adversarial hypothesis testing — see "Security fixes found via hypothesis testing" below. | `packages/shared/src/fdia-core.ts` |
 | `configure_policy` | Real state mutation. Full-replace (not merge) semantics; no schema validation before reporting success in the `sovereign` worker (unresolved — tracked in `ROADMAP.md`). `sovereign` worker stores policy in-memory (isolate-scoped, eventually-consistent via optional KV write); the standalone `fdia` worker stores it in a Durable Object (more durable). | `packages/sovereign/src/worker.ts`, `packages/fdia/src/worker.ts` |
 | `rct_think` | **Real, deterministic heuristics across all 7 stages.** `verified_alignment_score` is computed from grounding completeness, problem specificity, and lexical overlap. Stages 1-6 now also compute real, input-dependent output: sentence splitting (Stage 1), context/problem lexical overlap (Stage 2), conjunction-based sub-task splitting (Stage 3), keyword-taxonomy failure detection (Stage 4), shared-vocabulary intent extraction (Stage 5), and a blueprint built from Stages 3+5 (Stage 6). Explicitly NOT semantic understanding (no LLM call) — see `docs/RCT7_SCORING_SPEC.md` for the full breakdown and documented limitations. | `packages/rct7/src/index.ts`, `docs/RCT7_SCORING_SPEC.md` |
 | `compress_context` | Real dedup + optional keyword filter; SHA-256 hash of real output. `reduction_percentage` is now the **real, unclamped computed value** — it can be negative on already-short/unique input or exceed the old 91.5% figure on highly repetitive input. The 74.2%-91.5% range was a specific benchmark result, not a guarantee, and is no longer enforced. | `packages/delta/src/index.ts` |
@@ -19,16 +19,73 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
 ## Test suite
 
-38 tests across 3 files, all passing as of 2026-09-11 (`npm run test:all`):
+62 tests across 4 files, all passing as of 2026-09-12 (`npm run test:all`):
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
-`tests/test_fdia_policy_engine.mjs` (14). Includes explicit regression tests
+`tests/test_fdia_policy_engine.mjs` (14), `tests/fdia_deep_hypothesis.test.mjs`
+(24, new — adversarial/edge-case hypothesis suite for the FDIA gate
+specifically, added after a request to stress-test its logic more deeply
+than the existing scenario tests do). Includes explicit regression tests
 for every behavior change above (real RCT-7 score varies + is deterministic,
 all 7 RCT-7 stages produce different output on different input including a
 specific "Node.js must not be split on its period" regression, FDIA fails
 closed on malformed input, Delta reduction is unclamped in both directions,
-JITNA primary/support role split). CI (`.github/workflows/ci.yml`) now runs
-build + typecheck + this full suite on every PR and push to `main` —
-previously this repo had no CI at all.
+JITNA primary/support role split, and the two FDIA rule-matching fixes below).
+CI (`.github/workflows/ci.yml`) now runs build + typecheck + this full suite
+on every PR and push to `main` — previously this repo had no CI at all.
+
+## Security fixes found via hypothesis testing (2026-09-12)
+
+Requested explicitly: stress-test FDIA's matching *logic* with adversarial
+inputs, not just its documented scenarios. Two real bugs were found and
+fixed in `packages/shared/src/fdia-core.ts`'s `FDIAEngine.evaluateA()` and
+`matchesWildcard()`; full detail and reproduction cases are in
+`tests/fdia_deep_hypothesis.test.mjs` (tests `H3a`/`H3b` and `H3e`):
+
+1. **First-match-wins rule resolution let a broad ALLOW rule shadow a
+   narrower BLOCK rule when both matched the same action name.** Example:
+   `purge_telemetry_cache` matches both the bundled policy's
+   `RULE-DATABASE-DESTRUCTIVE-BLOCK` (`purge_*`) and `RULE-READONLY-ALLOW`
+   (`*telemetry*`); before the fix, whichever rule happened to be listed
+   first in the policy's `rules` array won outright, with no severity
+   consideration. This wasn't only a bundled-policy ordering accident — any
+   enterprise customer authoring their own `custom_policy` with an ALLOW
+   rule listed before a BLOCK rule would hit the identical bypass. Fixed by
+   ranking ALL matching rules by severity (`REQUIRE_HUMAN_SIGNATURE` >
+   `CONDITIONAL` > `ALLOW`) and always resolving to the most restrictive
+   match, regardless of array position. Also reordered the bundled policy's
+   `rules` array (`packages/shared/src/default-policy.ts`) most-restrictive-first
+   for human readability, though this is no longer load-bearing.
+2. **Leading/trailing whitespace on the caller-supplied `action_name`
+   defeated anchored (`pattern*` or `*pattern`, no wildcard) rule matching
+   while leaving unanchored (`*pattern*`) matching unaffected.** Example:
+   `"  purge_telemetry_cache  "` (padded) no longer matched the anchored
+   `purge_*` block pattern (the string now starts with whitespace, not
+   `purge_`), but still matched the unanchored `*telemetry*` allow pattern
+   — so padding moved the request from "correctly blocked" to "explicitly
+   authorized" instead of even falling through to the safe zero-trust
+   default. Fixed by trimming both the action name and each rule pattern
+   before comparison in `matchesWildcard()`.
+
+**Documented, intentionally NOT fixed, structural limitations** (see
+`H3c`/`H3f`/`H3g` in the same test file):
+- `action_name` is a caller-self-reported string label. FDIA pattern-matches
+  the label against policy; it has no way to verify the label actually
+  describes what the calling application will execute. A caller that
+  mislabels a destructive operation as e.g. `read_something` is authorized
+  under the read-only allow rule — this is a trust-boundary property of any
+  string-based intent classifier, not a bug this engine can fix. The real
+  mitigation is architectural: the calling application must derive
+  `action_name` from the actual function/tool being invoked, never let an
+  LLM choose it freely.
+- A zero-width space (or other non-whitespace invisible Unicode) inserted
+  mid-keyword still defeats a specific pattern match (e.g. `drop_*` no
+  longer matches `dr​op_table`). Under the bundled zero-trust default policy
+  this still resolves safely (falls to `ZERO_TRUST_FALLBACK`, still denied)
+  — but a policy configured with `default_fallback_A: 1` (permissive mode,
+  which `validatePolicy()` already emits a warning against) would NOT be
+  protected against this specific evasion. Full Unicode normalization was
+  judged out of scope for this pass; flagged here for anyone hardening this
+  further.
 
 ## Post-deploy verification (2026-09-11)
 

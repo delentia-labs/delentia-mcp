@@ -1,6 +1,6 @@
 {
   "name": "@delentia/mcp-sovereign",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Delentia Sovereign AI Ecosystem All-in-One MCP Server (FDIA + RCT-7 + Delta + JITNA)",
   "type": "module",
   "main": "dist/worker.js",

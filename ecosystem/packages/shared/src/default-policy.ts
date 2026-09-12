@@ -15,13 +15,19 @@ export const bundledPolicyConfig = {
   default_fallback_A: 0,
   custom_safety_threshold: 0.5,
   rules: [
+    // Order here is documentation only, not a security boundary: FDIAEngine.evaluateA()
+    // ranks all matching rules by severity (REQUIRE_HUMAN_SIGNATURE > CONDITIONAL > ALLOW)
+    // and the most restrictive match always wins, regardless of array position. Listed
+    // most-restrictive-first anyway so a human reading this file sees the same precedence
+    // the engine enforces.
     {
-      rule_id: "RULE-READONLY-ALLOW",
-      description: "อนุญาตคำสั่งอ่านข้อมูลและวิเคราะห์ทั่วไปโดยอัตโนมัติ (Zero Latency Friction)",
-      intent_patterns: ["read_*", "query_*", "summarize_*", "search_*", "check_*", "inspect_*", "evaluate_*", "get_*", "list_*", "quick_*", "*telemetry*", "*quick_eval*"],
-      action_type: "ALLOW",
-      assigned_A: 1,
-      require_human_confirmation: false
+      rule_id: "RULE-DATABASE-DESTRUCTIVE-BLOCK",
+      description: "คำสั่งลบข้อมูลหรือทำลายระบบ ต้องมีลายเซ็น Architect เท่านั้น",
+      intent_patterns: ["drop_*", "delete_*", "purge_*", "truncate_*", "execute_shell", "exec_*", "chmod_*", "system_exec*", "eval_*", "*eval_code*"],
+      action_type: "REQUIRE_HUMAN_SIGNATURE",
+      assigned_A: 0,
+      require_human_confirmation: true,
+      human_approver_role: ["Chief_Architect", "DevOps_Lead", "Security_Admin"]
     },
     {
       rule_id: "RULE-FILE-WRITE-RESTRICTED",
@@ -33,13 +39,12 @@ export const bundledPolicyConfig = {
       require_human_confirmation: false
     },
     {
-      rule_id: "RULE-DATABASE-DESTRUCTIVE-BLOCK",
-      description: "คำสั่งลบข้อมูลหรือทำลายระบบ ต้องมีลายเซ็น Architect เท่านั้น",
-      intent_patterns: ["drop_*", "delete_*", "purge_*", "truncate_*", "execute_shell", "exec_*", "chmod_*", "system_exec*", "eval_*", "*eval_code*"],
-      action_type: "REQUIRE_HUMAN_SIGNATURE",
-      assigned_A: 0,
-      require_human_confirmation: true,
-      human_approver_role: ["Chief_Architect", "DevOps_Lead", "Security_Admin"]
+      rule_id: "RULE-READONLY-ALLOW",
+      description: "อนุญาตคำสั่งอ่านข้อมูลและวิเคราะห์ทั่วไปโดยอัตโนมัติ (Zero Latency Friction)",
+      intent_patterns: ["read_*", "query_*", "summarize_*", "search_*", "check_*", "inspect_*", "evaluate_*", "get_*", "list_*", "quick_*", "*telemetry*", "*quick_eval*"],
+      action_type: "ALLOW",
+      assigned_A: 1,
+      require_human_confirmation: false
     }
   ],
   blocked_action_patterns: [

@@ -1,6 +1,6 @@
 {
   "name": "delentia-mcp-ecosystem",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "Delentia OS MCP Ecosystem — High-performance, Intent-Centric Enterprise MCP Servers with Dual-Transport and Policy Engine",
   "workspaces": [
@@ -23,7 +23,8 @@
     "test": "node tests/ecosystem.test.mjs",
     "test:deep": "node tests/deep-ecosystem.test.mjs",
     "test:policy": "node tests/test_fdia_policy_engine.mjs",
-    "test:all": "node tests/ecosystem.test.mjs && node tests/deep-ecosystem.test.mjs && node tests/test_fdia_policy_engine.mjs",
+    "test:fdia:hypothesis": "node tests/fdia_deep_hypothesis.test.mjs",
+    "test:all": "node tests/ecosystem.test.mjs && node tests/deep-ecosystem.test.mjs && node tests/test_fdia_policy_engine.mjs && node tests/fdia_deep_hypothesis.test.mjs",
     "test:benchmarks": "node tests/benchmark_fdia_vs.mjs && node tests/benchmark_rct7_vs.mjs && node tests/benchmark_delta_vs.mjs && node tests/stress_jitna_concurrency.mjs",
     "demo:vulnerable": "node scripts/demo_vulnerable_cli.mjs",
     "demo:fdia": "node scripts/demo_fdia_protected_cli.mjs",

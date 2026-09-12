@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (2026-09-12)
+
+### Added
+- `tests/fdia_deep_hypothesis.test.mjs` — 24 new adversarial/edge-case hypothesis tests for `evaluate_fdia`'s core matching and math logic (mathematical invariants of `F = D^I * A`, determinism, wildcard-matching evasion attempts, prototype-pollution/injection robustness, custom-policy isolation, RBAC-severity interaction). Requested specifically to go deeper than the existing scenario-based test suite. Test count: 38 → 62.
+
+### Fixed
+- **Security-relevant**: `FDIAEngine.evaluateA()` used first-match-wins rule resolution — when an action name matched more than one policy rule, whichever rule was listed first in the `rules` array won, with no regard for severity. Found via hypothesis testing: `purge_telemetry_cache` matched both the bundled `RULE-DATABASE-DESTRUCTIVE-BLOCK` (`purge_*`) and `RULE-READONLY-ALLOW` (`*telemetry*`); it was authorized because the ALLOW rule happened to be declared first. This is not just a bundled-policy ordering issue — any customer-authored `custom_policy` listing an ALLOW rule before a BLOCK rule would hit the same bypass. Fixed by ranking all matching rules by severity (`REQUIRE_HUMAN_SIGNATURE` > `CONDITIONAL` > `ALLOW`) and always resolving to the most restrictive match, independent of array order. Also reordered `default-policy.ts`'s bundled rules most-restrictive-first for readability (no longer load-bearing after the fix).
+- **Security-relevant**: `matchesWildcard()` did not trim whitespace before matching, so leading/trailing padding on `action_name` broke anchored patterns (`purge_*`) while leaving unanchored patterns (`*telemetry*`) unaffected — `"  purge_telemetry_cache  "` moved from correctly-blocked to explicitly-authorized instead of falling through to the safe zero-trust fallback. Fixed by trimming both the action name and each rule pattern before comparison.
+- Documented (intentionally not "fixed", since no code fix is well-scoped): `action_name` is a caller-self-reported label the engine cannot verify against what the caller will actually execute, and a zero-width-space-style invisible-Unicode evasion of a specific block pattern is only caught by the zero-trust *default* (not by the engine itself) — see `TESTING_CANONICAL.md`'s "Security fixes found via hypothesis testing" section.
+
 ## Unreleased
 
 ### Added

@@ -8,6 +8,10 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-12)
+
+- [x] Deep adversarial/hypothesis test pass specifically on `evaluate_fdia`'s matching logic (`tests/fdia_deep_hypothesis.test.mjs`, 24 tests) — found and fixed two real rule-matching bugs (first-match-wins letting a broad ALLOW rule shadow a narrower BLOCK rule; whitespace padding defeating anchored pattern matches) and explicitly documented two structural limitations that were not fixed (self-reported `action_name` trust boundary; zero-width-space pattern evasion under a permissive fallback policy). Full detail in `TESTING_CANONICAL.md`'s "Security fixes found via hypothesis testing" section and `CHANGELOG.md`.
+
 ## Done (2026-09-11)
 
 - [x] `rct_think`'s `verified_alignment_score` is now a real computed heuristic, not a hardcoded `1.0` — see `docs/RCT7_SCORING_SPEC.md`.

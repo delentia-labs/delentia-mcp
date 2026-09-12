@@ -178,10 +178,20 @@ export type FDIAResult = FDIAEvaluationResult;
  */
 export function matchesWildcard(text: string, pattern: string): boolean {
   if (!pattern || !text) return false;
-  if (pattern === "*" || pattern === text) return true;
-  
-  const lowerText = text.toLowerCase();
-  const lowerPat = pattern.toLowerCase();
+  if (pattern === "*") return true;
+
+  // Trim before matching: found via adversarial testing 2026-09-11 that
+  // leading/trailing whitespace on the caller-supplied action name breaks
+  // an ANCHORED pattern's start-of-string check (e.g. "purge_*" no longer
+  // matches "  purge_telemetry_cache  " because the string now starts with
+  // whitespace, not "purge_") while leaving UNANCHORED patterns like
+  // "*telemetry*" unaffected — letting a padded destructive action name
+  // fall through the specific block rule and land on a broad allow-list
+  // match instead of the safe zero-trust fallback. Trimming both sides
+  // closes this without changing behavior for any already-untrimmed input.
+  const lowerText = text.trim().toLowerCase();
+  const lowerPat = pattern.trim().toLowerCase();
+  if (lowerPat === lowerText) return true;
   
   if (!lowerPat.includes("*")) {
     return lowerText === lowerPat;
@@ -289,37 +299,10 @@ export function createDefaultPolicy(): FDIAPolicy {
     policy_name: "Delentia Zero-Trust Default Policy",
     default_fallback_A: 0, // Zero-trust: unknown intents default to A = 0
     custom_safety_threshold: 0.5,
+    // Order is documentation only — evaluateA() ranks matches by severity
+    // (REQUIRE_HUMAN_SIGNATURE > CONDITIONAL > ALLOW), most-restrictive-wins,
+    // regardless of array position. Listed most-restrictive-first anyway.
     rules: [
-      {
-        rule_id: "RULE-READONLY-ALLOW",
-        description: "Permits read-only queries, analysis, and inspection automatically (Zero Friction)",
-        intent_patterns: [
-          "read_*",
-          "query_*",
-          "summarize_*",
-          "search_*",
-          "check_*",
-          "inspect_*",
-          "evaluate_*",
-          "get_*",
-          "list_*",
-          "quick_*",
-          "*telemetry*",
-          "*quick_eval*"
-        ],
-        action_type: "ALLOW",
-        assigned_A: 1,
-        require_human_confirmation: false,
-      },
-      {
-        rule_id: "RULE-FILE-WRITE-RESTRICTED",
-        description: "File write/modify operations conditionally verified against sensitive system paths",
-        intent_patterns: ["write_*", "modify_*", "update_code*", "save_*", "*operation*", "*task*"],
-        denied_paths: [".env", ".git/*", "production.config.*", "/etc/*", "id_rsa*", "*.pem", "*.key"],
-        action_type: "CONDITIONAL",
-        assigned_A: 1,
-        require_human_confirmation: false,
-      },
       {
         rule_id: "RULE-DATABASE-DESTRUCTIVE-BLOCK",
         description: "Destructive database or OS commands require human architect cryptographic signature",
@@ -350,6 +333,36 @@ export function createDefaultPolicy(): FDIAPolicy {
         assigned_A: 0,
         require_human_confirmation: true,
         human_approver_role: ["Chief_Architect"],
+      },
+      {
+        rule_id: "RULE-FILE-WRITE-RESTRICTED",
+        description: "File write/modify operations conditionally verified against sensitive system paths",
+        intent_patterns: ["write_*", "modify_*", "update_code*", "save_*", "*operation*", "*task*"],
+        denied_paths: [".env", ".git/*", "production.config.*", "/etc/*", "id_rsa*", "*.pem", "*.key"],
+        action_type: "CONDITIONAL",
+        assigned_A: 1,
+        require_human_confirmation: false,
+      },
+      {
+        rule_id: "RULE-READONLY-ALLOW",
+        description: "Permits read-only queries, analysis, and inspection automatically (Zero Friction)",
+        intent_patterns: [
+          "read_*",
+          "query_*",
+          "summarize_*",
+          "search_*",
+          "check_*",
+          "inspect_*",
+          "evaluate_*",
+          "get_*",
+          "list_*",
+          "quick_*",
+          "*telemetry*",
+          "*quick_eval*"
+        ],
+        action_type: "ALLOW",
+        assigned_A: 1,
+        require_human_confirmation: false,
       }
     ],
     blocked_action_patterns: [],
@@ -574,10 +587,39 @@ export class FDIAEngine {
   ): { A: number; reason: string; ruleTriggered: string; actionType: string; verifiedApprover?: string } {
     // 1. Evaluate Configured Dynamic Rules first if present
     if (this.policy.rules && this.policy.rules.length > 0) {
-      for (const rule of this.policy.rules) {
-        const isMatch = rule.intent_patterns.some((pattern) => matchesWildcard(intentCode, pattern));
+      // Most-restrictive-match-wins, not first-match-wins.
+      //
+      // Rationale (found via adversarial testing 2026-09-11): with plain
+      // first-array-match semantics, an action named e.g.
+      // "read_drop_table_customers" matched the bundled ALLOW rule
+      // (`read_*`, listed first) and returned A=1 *before* the
+      // DATABASE-DESTRUCTIVE-BLOCK rule (`drop_*`) was ever evaluated —
+      // any action name prefixed with an allowed verb (read_/query_/
+      // check_/get_/list_/search_/inspect_/evaluate_/summarize_/quick_)
+      // bypassed every REQUIRE_HUMAN_SIGNATURE / CONDITIONAL rule that also
+      // matched. That bug lived in this engine, not just the bundled
+      // policy's array order — any enterprise customer who authored their
+      // own custom_policy with an ALLOW rule before a BLOCK rule would hit
+      // the exact same bypass. Ranking by severity instead of array
+      // position closes the whole bug class regardless of how a policy
+      // author orders their rules.
+      const actionSeverity: Record<string, number> = {
+        REQUIRE_HUMAN_SIGNATURE: 2,
+        CONDITIONAL: 1,
+        ALLOW: 0,
+      };
+      const matchedRules = this.policy.rules.filter((rule) =>
+        rule.intent_patterns.some((pattern) => matchesWildcard(intentCode, pattern))
+      );
 
-        if (isMatch) {
+      if (matchedRules.length > 0) {
+        const rule = matchedRules.reduce((mostRestrictive, candidate) => {
+          const candidateRank = actionSeverity[candidate.action_type] ?? 0;
+          const currentRank = actionSeverity[mostRestrictive.action_type] ?? 0;
+          return candidateRank > currentRank ? candidate : mostRestrictive;
+        });
+
+        {
           // Check role restrictions if defined
           if (rule.allowed_roles && rule.allowed_roles.length > 0) {
             const hasRole = rule.allowed_roles.includes(callerRole) || rule.allowed_roles.includes("*");
