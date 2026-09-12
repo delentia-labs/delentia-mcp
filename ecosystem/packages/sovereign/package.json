@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/worker.js",
   "scripts": {
+    "build": "tsc",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

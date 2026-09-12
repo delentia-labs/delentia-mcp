@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-12, part 4)
+
+- [x] Extended the RCT-7 -> intent_precision synthesis to `packages/sovereign` (the all-in-one production worker, which already bundles `executeRCT7` alongside `evaluate_fdia`) — optional `problem_statement` input, fully backward compatible, zero new dependencies. Gave `sovereign` a real `build` script and aligned its `tsconfig.json` with every sibling package for the first time. 5 new tests call the worker's real `fetch` handler directly.
+- [ ] Still not done: the standalone `fdia` worker (would need `@delentia/mcp-rct7` added as a genuinely new cross-package dependency, since unlike `sovereign` it doesn't already import RCT-7), the `rct7`/`delta`/`jitna` standalone workers (lower priority — they don't expose `evaluate_fdia` at all), and the Python `rct_control_plane`/`intent_compiler.py` side (a separate runtime entirely, its own compatibility design needed).
+
 ## Done (2026-09-12, part 3)
 
 - [x] **Closed the loop between RCT-7 and FDIA.** `packages/intent-loop`'s `FDIAGatekeeper.validate()` now derives FDIA's `intent_precision` (I) from a real call to `executeRCT7()`'s `verified_alignment_score`, instead of a caller-supplied constant or an unrelated heuristic — the original design intent for this whole ecosystem (I extracted from decomposing the caller's actual intent, not handed in) implemented for the first time anywhere in the codebase. See `TESTING_CANONICAL.md`'s "RCT-7 → FDIA intent_precision synthesis" section for the exact mapping, live verification against real models, and a real performance measurement (0.0145ms/call average — the synthesis adds no meaningful latency).

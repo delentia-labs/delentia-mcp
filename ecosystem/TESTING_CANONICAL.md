@@ -163,12 +163,34 @@ would blur what each FDIA parameter means.
   2 actual network round trips (specialist execute + 3-model consensus
   verify), not from RCT-7 or FDIA.
 
-**Known limitation, disclosed rather than hidden**: this closes the loop
-within `packages/intent-loop` specifically. The other 4 pillar workers
-(`fdia`, `rct7`, `delta`, `jitna` standalone deployments) and the Python
-`rct_control_plane` side still take `I`/`intent_precision` as a plain
-caller-supplied number — this synthesis is not yet the ecosystem-wide
-default, only the new intent-loop package's behavior.
+**Extended to the `sovereign` worker (2026-09-12, same day)**: `sovereign`
+is the one production deployment that already bundles both `evaluate_fdia`
+and `executeRCT7` in the same Worker (it imports RCT-7 directly via a
+relative dist path) — so the identical synthesis was wired into its
+`evaluate_fdia` handler with **zero new dependencies**. Fully backward
+compatible by construction: `intent_precision`/its 1.0 default behave
+byte-identically to before when `problem_statement` is omitted; supplying
+it triggers real RCT-7 synthesis and adds an `rct7_synthesis` field to the
+response. `packages/sovereign` gained a proper `build` script for the
+first time in this change (it previously relied on `wrangler deploy`'s
+on-the-fly bundling and had no `tsc` build step of its own, which also
+meant it was untestable outside a full Wrangler invocation) — its
+`tsconfig.json` now extends the shared root config like every sibling
+package, and typechecks clean under `strict: true` with no changes needed
+to `worker.ts` itself. 5 new tests in `tests/sovereign_rct7_synthesis.test.mjs`
+call the worker's real `fetch` handler directly (not a mock) covering both
+backward-compatibility cases and the new synthesis path, including that a
+destructive `action_name` is still blocked by its own independent gate
+regardless of RCT-7's score.
+
+**Known limitation, disclosed rather than hidden**: the remaining 3 pillar
+workers (`fdia`, `rct7`, `delta`, `jitna` standalone deployments) and the
+Python `rct_control_plane` side still take `I`/`intent_precision` as a
+plain caller-supplied number — this synthesis now covers `intent-loop` and
+`sovereign` but is not yet the ecosystem-wide default. Extending it to the
+standalone `fdia` worker specifically would require adding `@delentia/mcp-rct7`
+as a new cross-package dependency there (unlike `sovereign`, which already
+had it) — a slightly larger, deliberately deferred change.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (2026-09-12, part 4) — RCT-7 synthesis extended to the sovereign worker
+
+### Added
+- `packages/sovereign/src/worker.ts`'s `evaluate_fdia` handler now accepts an optional `problem_statement` (+ `environment_context`/`target_desired_outcome`) that triggers the same real RCT-7 -> intent_precision synthesis as `packages/intent-loop`, with zero new dependencies — `sovereign` already imports `executeRCT7` directly in the same deployment. Fully backward compatible: omitting `problem_statement` is byte-identical to the pre-existing behavior (verified: same `future_score`, no `rct7_synthesis` field added).
+- `packages/sovereign` gained a real `build` script (`tsc`) for the first time — it previously had none, relying entirely on `wrangler deploy`'s on-the-fly esbuild bundling, which also meant nothing in this package was directly unit-testable. `tsconfig.json` now extends the shared root config (matching every sibling package) instead of its own standalone, less-strict config; typechecks clean under `strict: true` with no source changes required.
+- `tests/sovereign_rct7_synthesis.test.mjs` — 5 new tests calling the worker's real `fetch` handler directly (constructed `Request`, real `Response`, no mocking of the handler itself): 2 prove backward compatibility, 1 proves the new synthesis path produces a real, in-range, non-default `intent_precision`, 1 proves a destructive `action_name` is still blocked regardless of RCT-7's score (the action-name gate and the intent_precision synthesis are independent), 1 proves whitespace-only `problem_statement` doesn't spuriously trigger synthesis.
+
 ## Unreleased (2026-09-12, part 3) — RCT-7 now synthesizes FDIA's intent_precision
 
 ### Added
