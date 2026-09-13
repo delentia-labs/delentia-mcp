@@ -5,6 +5,9 @@ import {
   ingestGraphragDocument,
   indexTextAsVector,
   checkCodeHalts,
+  createGraphNode,
+  createGraphRelationship,
+  analyzeTradeoffs,
 } from "@delentia/shared";
 export { RCTDBLogSessionDO } from "@delentia/shared";
 
@@ -46,6 +49,19 @@ interface Env {
    * verified for real this session). Optional — unset means
    * checkGeneratedCodeHalts() is a silent no-op. */
   HALTING_DETECTION_BASE_URL?: string;
+  /** Base URL of a running graph-traversal instance (ALGO-17, real
+   * BFS/DFS/Dijkstra/PageRank/Louvain + real Neo4j). Optional — unset
+   * means syncToGraphTraversal() is a silent no-op. A third
+   * complementary real memory backend: explicit relationship queries
+   * ("what outcomes came from this intent") that neither GraphRAG's
+   * fusion search nor Vector Search's ANN similarity can answer. */
+  GRAPH_TRAVERSAL_BASE_URL?: string;
+  /** Base URL of a running moip-planner instance (ALGO-02, real
+   * Pareto-dominance multi-objective analysis). Optional — unset means
+   * analyzeIntentLoopTradeoffs() is a silent no-op. Purely advisory:
+   * never changes which model is routed to, only records a real
+   * trade-off analysis of the run that actually happened. */
+  MOIP_PLANNER_BASE_URL?: string;
 }
 
 /**
@@ -185,6 +201,85 @@ export async function checkGeneratedCodeHalts(env: Env, sessionId: string, packe
   }
 }
 
+/**
+ * Best-effort real sync of a completed run's intent+outcome into Graph
+ * Traversal as an explicit relationship: an Intent node, an Outcome node,
+ * and a PRODUCED edge between them. Complementary to GraphRAG (content-
+ * fusion search) and Vector Search (ANN similarity) — this is the one
+ * backend that can answer real relationship queries later (e.g. shortest
+ * path between two remembered intents/outcomes), which neither of the
+ * other two can.
+ */
+export async function syncToGraphTraversal(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.GRAPH_TRAVERSAL_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const intentNodeId = `intent-${sessionId}-${result.intent_hash}`;
+    const outcomeNodeId = `outcome-${sessionId}-${result.intent_hash}`;
+    await createGraphNode(env.GRAPH_TRAVERSAL_BASE_URL, intentNodeId, ["Intent"], {
+      text: packet.intent,
+      session_id: sessionId,
+    });
+    await createGraphNode(env.GRAPH_TRAVERSAL_BASE_URL, outcomeNodeId, ["Outcome"], {
+      summary: JSON.stringify(result.output),
+      fdia_score: result.fdia_score,
+    });
+    await createGraphRelationship(env.GRAPH_TRAVERSAL_BASE_URL, intentNodeId, outcomeNodeId, "PRODUCED", {
+      session_id: sessionId,
+    });
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+  }
+}
+
+/**
+ * Best-effort real, honest trade-off analysis of a completed run via
+ * MOIP's real Pareto-dominance logic — purely advisory, never changes
+ * which model was actually used. Objective values are real, derived
+ * directly from this run's own real fields (FDIA intent precision,
+ * multi-model verification confidence, and a deterministic 0-1
+ * normalization of real latency_ms) — never fabricated benchmark data.
+ * When GraphRAG is also configured, the resulting recommendation is
+ * remembered as real semantic memory, the same pattern already used for
+ * Halting Detection findings.
+ */
+export async function analyzeIntentLoopTradeoffs(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.MOIP_PLANNER_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const speedScore = 1 / (1 + result.latency_ms / 1000); // real latency_ms, deterministic 0-1 normalization
+    const analysis = await analyzeTradeoffs(
+      env.MOIP_PLANNER_BASE_URL,
+      packet.intent,
+      [
+        { id: "intent_precision", name: "Intent Precision", description: "FDIA intent precision score", weight: 0.4, maximize: true, target_value: 1.0 },
+        { id: "verification_confidence", name: "Verification Confidence", description: "Multi-model consensus confidence", weight: 0.4, maximize: true, target_value: 1.0 },
+        { id: "speed", name: "Speed", description: "Inverse-latency score (1 / (1 + latency_s))", weight: 0.2, maximize: true, target_value: 1.0 },
+      ],
+      {
+        id: sessionId,
+        name: "actual run",
+        description: packet.intent,
+        objective_values: {
+          intent_precision: result.fdia_score ?? 0,
+          verification_confidence: result.verification?.confidence ?? 0,
+          speed: speedScore,
+        },
+      }
+    );
+
+    if (env.GRAPHRAG_BASE_URL) {
+      await ingestGraphragDocument(
+        env.GRAPHRAG_BASE_URL,
+        `MOIP trade-off analysis for intent "${packet.intent}": ${analysis.recommendation} (total_score=${analysis.total_score.toFixed(2)})`,
+        { source: "intent-loop-moip-analysis", session_id: sessionId, total_score: analysis.total_score }
+      );
+    }
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+  }
+}
+
 // One engine instance per Worker isolate. Memory (recall/store) is real but
 // isolate-scoped — it does NOT survive an isolate recycle or span multiple
 // isolates. This is the same known, disclosed limitation already tracked in
@@ -228,6 +323,8 @@ export default {
             graphrag_bridge_configured: Boolean(env.GRAPHRAG_BASE_URL),
             vector_search_bridge_configured: Boolean(env.VECTOR_SEARCH_BASE_URL),
             halting_detection_bridge_configured: Boolean(env.HALTING_DETECTION_BASE_URL),
+            graph_traversal_bridge_configured: Boolean(env.GRAPH_TRAVERSAL_BASE_URL),
+            moip_planner_bridge_configured: Boolean(env.MOIP_PLANNER_BASE_URL),
             transports: { streamable_http: "/mcp" },
             environment: env.ENVIRONMENT || "production",
             sentry_enabled: Boolean(env.SENTRY_DSN),
@@ -321,6 +418,8 @@ export default {
           ctx.waitUntil(syncToGraphRag(env, rctdbSessionId, packet, result));
           ctx.waitUntil(syncToVectorSearch(env, rctdbSessionId, packet, result));
           ctx.waitUntil(checkGeneratedCodeHalts(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToGraphTraversal(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(analyzeIntentLoopTradeoffs(env, rctdbSessionId, packet, result));
 
           return new Response(
             JSON.stringify({

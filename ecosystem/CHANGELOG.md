@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 7) — the bridge completed: all 5 audited-real Python services now reachable
+
+### Added
+- `packages/shared/src/graph-traversal-client.ts` — a real client (`createGraphNode`, `createGraphRelationship`, `findShortestPath`) for `graph-traversal`'s real API (routes mounted under `/graph`, e.g. `POST /graph/nodes`).
+- `packages/shared/src/moip-client.ts` — a real client (`analyzeTradeoffs`) for `moip-planner`'s real `POST /moip/analyze` trade-off analysis endpoint.
+- `syncToGraphTraversal()` in `packages/intent-loop/src/worker.ts` — a third complementary real memory backend: creates a real Intent node, a real Outcome node, and a real `PRODUCED` relationship between them for every completed `run_intent_loop` call, gated on `GRAPH_TRAVERSAL_BASE_URL`. Unlike GraphRAG (content-fusion search) or Vector Search (ANN similarity), this backend answers explicit relationship queries.
+- `analyzeIntentLoopTradeoffs()` in the same file — purely advisory, never changes which model was actually used: runs a real MOIP Pareto-dominance trade-off analysis of the run that actually happened, using only real values already on the `IntentResult` (FDIA `fdia_score`, verification `confidence`, and a documented deterministic 0-1 normalization of real `latency_ms` — never fabricated benchmark data). When `GRAPHRAG_BASE_URL` is also configured, the recommendation is remembered as real semantic memory, gated on `MOIP_PLANNER_BASE_URL`.
+- `tests/graph_traversal_moip_bridge.test.mjs` — starts the real Python `graph-traversal`, `moip-planner`, and `graphrag-complete` services as real subprocesses and proves: a synced Intent node genuinely exists with the right label and properties (fetched back independently, not just a non-throwing call); a real MOIP recommendation is verifiably remembered in GraphRAG.
+
+### Fixed (found while wiring this, not previously present)
+- `graph-traversal-client.ts`'s first draft hit `${baseUrl}/nodes` etc. — the real service mounts its router under `/graph` (`app.include_router(routes.router, prefix="/graph", ...)`), so every call would have 404'd. Fixed to `/graph/nodes`, `/graph/relationships`, `/graph/shortest-path`, matching the same "base URL is bare host:port, client hardcodes the real prefix" convention already used by every other client in this bridge.
+- `graph-traversal`'s own `/graph/health` route synchronously re-checks live Neo4j connectivity (and a configured vector-service URL) on every single call, genuinely taking several real seconds when neither is reachable (as in dev/test) rather than being a fast liveness probe — not a bug fixed in the Python service, but documented here since it required a longer per-attempt timeout in the bridge test's health-poll than every other bridged service needed.
+- `neo4j` (the real Python driver, pinned in `graph-traversal/requirements.txt`) was not installed in this shared interpreter — installed for real (its absence was masked for `pytest` by a mock in that service's own test fixtures).
+
+140 tests total across 14 files, all passing (4 new since part 6), zero regressions. All 5 Python services audited real this session (GraphRAG, Vector Search, Halting Detection, Graph Traversal, MOIP Planner) are now bridged.
+
 ## Unreleased (2026-09-13, part 6) — the bridge extended: Vector Search and Halting Detection, not just GraphRAG
 
 ### Added

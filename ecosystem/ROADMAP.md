@@ -4,17 +4,21 @@ This roadmap tracks work on the live Cloudflare Workers MCP gateway
 (`packages/sovereign`, `packages/fdia`, `packages/rct7`, `packages/delta`,
 `packages/jitna`, `packages/shared`). It does not replace or duplicate
 `Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps.
-**Update 2026-09-13, part 6**: the bridge from part 5 now covers 3 of
-`the private services repo`'s Python services — GraphRAG, Vector Search, and
-Halting Detection — via `syncToGraphRag()`, `syncToVectorSearch()`, and
-`checkGeneratedCodeHalts()`. The other ~32 services in that platform are
-still not reachable from here (see `TESTING_CANONICAL.md` for the
-verified per-tool status this roadmap is fixing).
+**Update 2026-09-13, part 7**: the bridge now covers all 5 of
+`the private services repo`'s Python services that were independently audited
+real this session — GraphRAG, Vector Search, Halting Detection, Graph
+Traversal, and MOIP Planner — via `syncToGraphRag()`,
+`syncToVectorSearch()`, `checkGeneratedCodeHalts()`,
+`syncToGraphTraversal()`, and `analyzeIntentLoopTradeoffs()`. The other
+~32 (of ~37 with a `tests/` directory) services in that platform,
+including everything not yet independently audited, are still not
+reachable from here (see `TESTING_CANONICAL.md` for the verified
+per-tool status this roadmap is fixing).
 
-## Done (2026-09-13, part 6)
+## Done (2026-09-13, part 7)
 
-- [x] **Bridge extended to Vector Search and Halting Detection**: `packages/shared/src/{vector-search-client,halting-detection-client,hashing-embedding}.ts` + `syncToVectorSearch()`/`checkGeneratedCodeHalts()` in `packages/intent-loop/src/worker.ts`. `hashing-embedding.ts` is a TS port of GraphRAG's embedding algorithm (needed since Vector Search only accepts pre-computed vectors), verified byte-for-byte identical to the real Python implementation via an automated cross-language test. `checkGeneratedCodeHalts()` safety-checks real fenced code blocks in "code"-role outputs and, when GraphRAG is also configured, remembers the finding as real semantic memory — the same Halting Detection → GraphRAG pattern already proven on the Python side, now reachable from TS too. All verified against the real Python services as subprocesses, not mocked.
-- [ ] Not done: the reverse direction (Python services calling back into this TS kernel), and the other ~32 services in `the private services repo`'s Python microservices platform. None of the 3 bridged `*_BASE_URL` vars has a real deployed value yet — all three bridges are real and tested, but only actually fire once a reachable instance of the corresponding service exists outside a dev/test environment.
+- [x] **Bridge completed for all 5 audited-real services**: `packages/shared/src/{graph-traversal-client,moip-client}.ts` + `syncToGraphTraversal()`/`analyzeIntentLoopTradeoffs()` in `packages/intent-loop/src/worker.ts`. `syncToGraphTraversal()` creates a real Intent node, a real Outcome node, and a real `PRODUCED` relationship for every completed run — a third complementary memory backend answering explicit relationship queries neither GraphRAG nor Vector Search can. `analyzeIntentLoopTradeoffs()` is purely advisory (never changes routing): a real MOIP Pareto-dominance analysis using only real fields already on the result (FDIA score, verification confidence, a documented normalization of real latency), remembered in GraphRAG when both are configured. All verified against the real Python services as subprocesses. Found and fixed two real bugs while wiring this: `graph-traversal-client.ts`'s first draft missed the service's real `/graph` route prefix entirely (every call would have 404'd), and the real Neo4j Python driver was never installed in this shared interpreter (masked for `pytest` by a test-only mock).
+- [ ] Not done: the reverse direction (Python services calling back into this TS kernel), and the other ~32 services in `the private services repo`'s Python microservices platform not yet independently audited as real. None of the 5 bridged `*_BASE_URL` vars has a real deployed value yet — all five bridges are real and tested, but only actually fire once a reachable instance of the corresponding service exists outside a dev/test environment.
 
 ## Done (2026-09-13, part 5)
 
