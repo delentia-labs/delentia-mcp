@@ -9,3 +9,6 @@ export * from "./rctdb-log.js";
 export * from "./rctdb-log-do.js";
 export * from "./toon-format.js";
 export * from "./graphrag-client.js";
+export * from "./hashing-embedding.js";
+export * from "./vector-search-client.js";
+export * from "./halting-detection-client.js";

@@ -4,14 +4,17 @@ This roadmap tracks work on the live Cloudflare Workers MCP gateway
 (`packages/sovereign`, `packages/fdia`, `packages/rct7`, `packages/delta`,
 `packages/jitna`, `packages/shared`). It does not replace or duplicate
 `Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps.
-**Update 2026-09-13, part 5**: this repo previously had no code path
-connecting it to either of those — as of `syncToGraphRag()` (see below),
-that is no longer true: `packages/intent-loop` now makes real network
-calls into `the private services repo/<private>/microservices/graphrag-complete`.
-The rest of `the private services repo`'s Python microservices platform (Vector
-Search, Halting Detection, the other ~34 services) is still not reachable
-from here (see `TESTING_CANONICAL.md` for the verified per-tool status
-this roadmap is fixing).
+**Update 2026-09-13, part 6**: the bridge from part 5 now covers 3 of
+`the private services repo`'s Python services — GraphRAG, Vector Search, and
+Halting Detection — via `syncToGraphRag()`, `syncToVectorSearch()`, and
+`checkGeneratedCodeHalts()`. The other ~32 services in that platform are
+still not reachable from here (see `TESTING_CANONICAL.md` for the
+verified per-tool status this roadmap is fixing).
+
+## Done (2026-09-13, part 6)
+
+- [x] **Bridge extended to Vector Search and Halting Detection**: `packages/shared/src/{vector-search-client,halting-detection-client,hashing-embedding}.ts` + `syncToVectorSearch()`/`checkGeneratedCodeHalts()` in `packages/intent-loop/src/worker.ts`. `hashing-embedding.ts` is a TS port of GraphRAG's embedding algorithm (needed since Vector Search only accepts pre-computed vectors), verified byte-for-byte identical to the real Python implementation via an automated cross-language test. `checkGeneratedCodeHalts()` safety-checks real fenced code blocks in "code"-role outputs and, when GraphRAG is also configured, remembers the finding as real semantic memory — the same Halting Detection → GraphRAG pattern already proven on the Python side, now reachable from TS too. All verified against the real Python services as subprocesses, not mocked.
+- [ ] Not done: the reverse direction (Python services calling back into this TS kernel), and the other ~32 services in `the private services repo`'s Python microservices platform. None of the 3 bridged `*_BASE_URL` vars has a real deployed value yet — all three bridges are real and tested, but only actually fire once a reachable instance of the corresponding service exists outside a dev/test environment.
 
 ## Done (2026-09-13, part 5)
 

@@ -1,6 +1,17 @@
 import { IntentLoopEngine, type IntentPacket, type IntentResult } from "./index.js";
-import { captureException, buildRctdbEntryFromIntentLoop, ingestGraphragDocument } from "@delentia/shared";
+import {
+  captureException,
+  buildRctdbEntryFromIntentLoop,
+  ingestGraphragDocument,
+  indexTextAsVector,
+  checkCodeHalts,
+} from "@delentia/shared";
 export { RCTDBLogSessionDO } from "@delentia/shared";
+
+/** Same code-role detection regex used for specialist routing in index.ts
+ * — reused here (not imported, since index.ts doesn't export it) to decide
+ * whether a completed run is worth a Halting Detection safety check. */
+const CODE_INTENT_RE = /\b(code|program|debug|function|bug|script)\b/i;
 
 interface Env {
   OPENROUTER_API_KEY?: string;
@@ -18,6 +29,23 @@ interface Env {
    * GraphRAG/Vector Search/Halting Detection before this change — there
    * was none). */
   GRAPHRAG_BASE_URL?: string;
+  /** Base URL of a running vector-search instance (ALGO-16, real FAISS/
+   * Qdrant backend). Optional — unset means syncToVectorSearch() is a
+   * silent no-op. A second, complementary real memory backend alongside
+   * GraphRAG: same hashing-trick embedding (hashing-embedding.ts,
+   * verified byte-for-byte identical to GraphRAG's Python-side
+   * embedding), indexed into a real ANN index instead of GraphRAG's
+   * in-process linear scan. */
+  VECTOR_SEARCH_BASE_URL?: string;
+  /** Dimension the target Vector Search instance is configured with (its
+   * own DIMENSION env var, default 768 there). Must match exactly — a
+   * mismatch is rejected by the real service with a 400. */
+  VECTOR_SEARCH_DIMENSION?: string;
+  /** Base URL of a running halting-detection instance (ALGO-22, real
+   * subprocess-sandboxed timeout+memory-limit enforcement, fixed and
+   * verified for real this session). Optional — unset means
+   * checkGeneratedCodeHalts() is a silent no-op. */
+  HALTING_DETECTION_BASE_URL?: string;
 }
 
 /**
@@ -82,6 +110,81 @@ export async function syncToGraphRag(env: Env, sessionId: string, packet: Intent
   }
 }
 
+/**
+ * Best-effort real sync of a completed run's intent+outcome into Vector
+ * Search — a second, complementary real memory backend alongside
+ * GraphRAG (both may be configured at once; each is independent and
+ * best-effort). Uses the same hashing-trick embedding as GraphRAG
+ * (verified byte-for-byte identical to its Python-side implementation),
+ * so text embedded here and text embedded by GraphRAG/graphrag-complete
+ * are directly comparable.
+ */
+export async function syncToVectorSearch(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.VECTOR_SEARCH_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const dimension = env.VECTOR_SEARCH_DIMENSION ? parseInt(env.VECTOR_SEARCH_DIMENSION, 10) : 768;
+    await indexTextAsVector(
+      env.VECTOR_SEARCH_BASE_URL,
+      `intent-loop-${sessionId}-${result.intent_hash}`,
+      `Intent: ${packet.intent}\nOutcome: ${JSON.stringify(result.output)}`,
+      dimension,
+      { source: "intent-loop", session_id: sessionId }
+    );
+  } catch {
+    // Non-blocking — same contract as syncToGraphRag.
+  }
+}
+
+/** Matches SpecialistResult.output's raw text (index.ts) for a fenced
+ * ```code``` block. Halting Detection executes real code in a real
+ * sandbox — it makes no sense to feed it free-form prose, so this only
+ * fires when a genuine code block is present, not on every code-related
+ * intent. */
+function extractCodeBlock(text: string): string | null {
+  const match = text.match(/```(?:python)?\n([\s\S]*?)```/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Best-effort real safety check of generated code via Halting Detection's
+ * real sandboxed timeout+memory-limit enforcement (fixed and verified for
+ * real this session — see TESTING_CANONICAL.md). Only runs for intents
+ * that were routed to the "code" specialist role (same detection regex
+ * used for that routing in index.ts) and whose output actually contains a
+ * fenced code block. If GraphRAG is also configured, the finding is
+ * remembered as real semantic memory — the identical Halting Detection ->
+ * GraphRAG pattern already proven end-to-end on the Python side
+ * (integration-tests/test_graphrag_halting_e2e.py), now also reachable
+ * from the TS side.
+ */
+export async function checkGeneratedCodeHalts(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.HALTING_DETECTION_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  if (!CODE_INTENT_RE.test(packet.intent)) return;
+  try {
+    const outputRecord = result.output as Record<string, unknown>;
+    const rawOutput = typeof outputRecord.output === "string" ? outputRecord.output : "";
+    const code = extractCodeBlock(rawOutput);
+    if (!code) return; // no actual code block to safety-check
+
+    const check = await checkCodeHalts(env.HALTING_DETECTION_BASE_URL, code, {}, 3000);
+
+    if (env.GRAPHRAG_BASE_URL) {
+      const verdict = check.completed && check.halted
+        ? "halted safely within the timeout"
+        : "did NOT halt within the timeout - potentially unsafe (infinite loop or excessive runtime)";
+      await ingestGraphragDocument(
+        env.GRAPHRAG_BASE_URL,
+        `Halting Detection checked code generated for intent "${packet.intent}" and it ${verdict}.`,
+        { source: "intent-loop-halting-check", session_id: sessionId, halted: check.halted, completed: check.completed }
+      );
+    }
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+  }
+}
+
 // One engine instance per Worker isolate. Memory (recall/store) is real but
 // isolate-scoped — it does NOT survive an isolate recycle or span multiple
 // isolates. This is the same known, disclosed limitation already tracked in
@@ -123,6 +226,8 @@ export default {
             note: "run_intent_loop makes real outbound calls to OpenRouter (free-tier models) for both execution and multi-model verification. Requires OPENROUTER_API_KEY to be configured; without it, every call fails closed with a real error, not a fabricated success.",
             openrouter_configured: Boolean(env.OPENROUTER_API_KEY),
             graphrag_bridge_configured: Boolean(env.GRAPHRAG_BASE_URL),
+            vector_search_bridge_configured: Boolean(env.VECTOR_SEARCH_BASE_URL),
+            halting_detection_bridge_configured: Boolean(env.HALTING_DETECTION_BASE_URL),
             transports: { streamable_http: "/mcp" },
             environment: env.ENVIRONMENT || "production",
             sentry_enabled: Boolean(env.SENTRY_DSN),
@@ -214,6 +319,8 @@ export default {
           const rctdbSessionId = packet.session_id ?? "default";
           ctx.waitUntil(logToRctdb(env, rctdbSessionId, packet, result));
           ctx.waitUntil(syncToGraphRag(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToVectorSearch(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(checkGeneratedCodeHalts(env, rctdbSessionId, packet, result));
 
           return new Response(
             JSON.stringify({

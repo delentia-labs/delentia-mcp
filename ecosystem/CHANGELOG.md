@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 6) — the bridge extended: Vector Search and Halting Detection, not just GraphRAG
+
+### Added
+- `packages/shared/src/hashing-embedding.ts` — a faithful TS port of `graphrag_engine.py`'s hashing-trick embedding (SHA-256 feature hashing + signed buckets + L2-normalize), needed because Vector Search (unlike GraphRAG) only accepts pre-computed float vectors and does no text-to-vector conversion of its own. **Verified byte-for-byte identical to the real Python implementation** via an automated test that shells out to the actual `graphrag_engine.py` (`tests/hashing_embedding.test.mjs`), the same rigor already applied to TOON serialization.
+- `packages/shared/src/vector-search-client.ts` — a real `fetch()`-based client (`indexTextAsVector`, `searchTextAsVector`) for `vector-search`'s real API (`POST /vector/index`, `POST /vector/search`), embedding text via the shared hashing algorithm above.
+- `packages/shared/src/halting-detection-client.ts` — a real client (`checkCodeHalts`) for `halting-detection`'s real sandboxed `POST /halting/simulate` endpoint (the real subprocess + wall-clock timeout + POSIX memory/CPU limits, all fixed and verified for real earlier this session).
+- `syncToVectorSearch()` in `packages/intent-loop/src/worker.ts` — a second, complementary real memory backend alongside GraphRAG for every completed `run_intent_loop` call, gated on an optional `VECTOR_SEARCH_BASE_URL` (+ `VECTOR_SEARCH_DIMENSION`, default 768). Independent of the GraphRAG bridge — either, both, or neither may be configured.
+- `checkGeneratedCodeHalts()` in the same file — for intents routed to the "code" specialist role (same detection regex already used for that routing) whose output contains a real fenced code block, best-effort runs that code through Halting Detection's real sandbox, gated on `HALTING_DETECTION_BASE_URL`. When `GRAPHRAG_BASE_URL` is *also* configured, the finding is remembered as real semantic memory — the identical Halting Detection → GraphRAG pattern already proven end-to-end on the Python side (`integration-tests/test_graphrag_halting_e2e.py`), now reachable from the TS side too.
+- `tests/vector_search_halting_bridge.test.mjs` — starts the real Python `vector-search`, `halting-detection`, and `graphrag-complete` services as real subprocesses and proves: a synced document is found by real vector search; a genuinely infinite generated code block is correctly reported as not halting; that finding is verifiably remembered in GraphRAG (not just that the call didn't throw); and a non-code intent is never sent to Halting Detection at all (near-instant no-op, not merely "eventually returns").
+
+### Fixed
+- `graphrag-client.ts` built request URLs via plain string concatenation. A `GRAPHRAG_BASE_URL` configured with a trailing slash (an easy real mistake) produced a double-slash path that FastAPI 404s on — and since `syncToGraphRag()` swallows all errors as best-effort, this was completely silent. Fixed with a `normalizeBaseUrl()` helper applied at every request site; added a regression test that configures a trailing slash and independently confirms via a real search call that the document still arrives.
+
+136 tests total across 13 files, all passing (10 new since part 5), zero regressions.
+
 ## Unreleased (2026-09-13, part 5) — the actual TS<->Python bridge: GraphRAG sync from Intent Loop
 
 ### Added
