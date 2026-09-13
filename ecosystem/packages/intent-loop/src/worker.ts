@@ -1,5 +1,5 @@
 import { IntentLoopEngine, type IntentPacket, type IntentResult } from "./index.js";
-import { captureException, buildRctdbEntryFromIntentLoop } from "@delentia/shared";
+import { captureException, buildRctdbEntryFromIntentLoop, ingestGraphragDocument } from "@delentia/shared";
 export { RCTDBLogSessionDO } from "@delentia/shared";
 
 interface Env {
@@ -8,6 +8,16 @@ interface Env {
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
   RCTDB_LOG_DO?: DurableObjectNamespace;
+  /** Base URL of a running graphrag-complete instance (e.g.
+   * http://127.0.0.1:8013 in local dev, or a public URL once deployed).
+   * Optional — when unset, syncToGraphRag() is a silent no-op, the same
+   * pattern as RCTDB_LOG_DO above. This is the actual network bridge
+   * between this TS/Cloudflare-Workers kernel and the Python microservices
+   * platform: without it configured, the two stacks never talk to each
+   * other (verified by grepping this whole package for any reference to
+   * GraphRAG/Vector Search/Halting Detection before this change — there
+   * was none). */
+  GRAPHRAG_BASE_URL?: string;
 }
 
 /**
@@ -43,6 +53,32 @@ export async function logToRctdb(env: Env, sessionId: string, packet: IntentPack
     });
   } catch {
     // Non-blocking — RCTDB logging must never break the actual response.
+  }
+}
+
+/**
+ * Best-effort real sync of a completed run into GraphRAG's semantic
+ * memory. This is the actual TS<->Python bridge: RCTDB (above) records a
+ * structured 8-dimension audit trail of what happened, but audit-log
+ * entries are not semantically searchable — GraphRAG is. Only completed
+ * runs with real output are worth ingesting; a gate rejection or failure
+ * has no useful content for future semantic recall. Never blocks or
+ * fails the actual response — same non-blocking contract as
+ * logToRctdb().
+ */
+export async function syncToGraphRag(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.GRAPHRAG_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    await ingestGraphragDocument(env.GRAPHRAG_BASE_URL, `Intent: ${packet.intent}\nOutcome: ${JSON.stringify(result.output)}`, {
+      source: "intent-loop",
+      session_id: sessionId,
+      fdia_score: result.fdia_score,
+      cache_hit: result.cache_hit,
+    });
+  } catch {
+    // Non-blocking — same contract as logToRctdb: GraphRAG being
+    // unreachable must never break the actual run_intent_loop response.
   }
 }
 
@@ -86,6 +122,7 @@ export default {
             version: "0.1.0",
             note: "run_intent_loop makes real outbound calls to OpenRouter (free-tier models) for both execution and multi-model verification. Requires OPENROUTER_API_KEY to be configured; without it, every call fails closed with a real error, not a fabricated success.",
             openrouter_configured: Boolean(env.OPENROUTER_API_KEY),
+            graphrag_bridge_configured: Boolean(env.GRAPHRAG_BASE_URL),
             transports: { streamable_http: "/mcp" },
             environment: env.ENVIRONMENT || "production",
             sentry_enabled: Boolean(env.SENTRY_DSN),
@@ -176,6 +213,7 @@ export default {
 
           const rctdbSessionId = packet.session_id ?? "default";
           ctx.waitUntil(logToRctdb(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToGraphRag(env, rctdbSessionId, packet, result));
 
           return new Response(
             JSON.stringify({

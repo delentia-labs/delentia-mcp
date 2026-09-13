@@ -3,10 +3,20 @@
 This roadmap tracks work on the live Cloudflare Workers MCP gateway
 (`packages/sovereign`, `packages/fdia`, `packages/rct7`, `packages/delta`,
 `packages/jitna`, `packages/shared`). It does not replace or duplicate
-`Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps — this
-repo is a fully independent codebase with no code path connecting it to
-either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
+`Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps.
+**Update 2026-09-13, part 5**: this repo previously had no code path
+connecting it to either of those — as of `syncToGraphRag()` (see below),
+that is no longer true: `packages/intent-loop` now makes real network
+calls into `the private services repo/<private>/microservices/graphrag-complete`.
+The rest of `the private services repo`'s Python microservices platform (Vector
+Search, Halting Detection, the other ~34 services) is still not reachable
+from here (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
+
+## Done (2026-09-13, part 5)
+
+- [x] **The first real TS<->Python bridge**: `packages/shared/src/graphrag-client.ts` (real `fetch()` client) + `syncToGraphRag()` in `packages/intent-loop/src/worker.ts` — every completed `run_intent_loop` call best-effort syncs a real summary into GraphRAG's semantic memory (`the private services repo/<private>/microservices/graphrag-complete`), gated on an optional `GRAPHRAG_BASE_URL` (unset by default — GraphRAG has no public deployment yet). Verified with a real cross-repo, cross-language integration test that starts the actual Python service as a subprocess and confirms real ingestion + real semantic search, not a mocked round trip.
+- [ ] Not done: the reverse direction (Python services calling back into this TS kernel — e.g. GraphRAG consulting RCTDB's audit log), and bridging Vector Search / Halting Detection specifically (only GraphRAG is wired so far). `GRAPHRAG_BASE_URL` also has no real deployed value yet — the bridge code is real and tested, but only actually fires once a reachable GraphRAG instance exists outside a dev/test environment (e.g. via a tunnel or a real deployment).
 
 ## Done (2026-09-13, part 4)
 

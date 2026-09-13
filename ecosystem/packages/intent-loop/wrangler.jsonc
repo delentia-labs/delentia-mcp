@@ -21,6 +21,14 @@
   "vars": {
     "ENVIRONMENT": "production",
     "SERVER_NAME": "Delentia Intent Loop MCP"
+    // GRAPHRAG_BASE_URL is deliberately left unset here: GraphRAG
+    // (<private>/microservices/graphrag-complete) is a local Python
+    // FastAPI service with no public deployment as of 2026-09-13, so there
+    // is no real URL to commit yet. Set it to a reachable GraphRAG
+    // instance's base URL (e.g. a Cloudflare Tunnel to a local dev
+    // instance, or a real deployed URL once one exists) to turn on the
+    // TS<->Python bridge (syncToGraphRag() in worker.ts) — until then it
+    // stays the silent no-op it already defaults to without this var.
   }
   // OPENROUTER_API_KEY is a secret, set via `wrangler secret put OPENROUTER_API_KEY`
   // at deploy time — never committed here. Not deployed yet as of 2026-09-12;

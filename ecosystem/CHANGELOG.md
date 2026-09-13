@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 5) — the actual TS<->Python bridge: GraphRAG sync from Intent Loop
+
+### Added
+- `packages/shared/src/graphrag-client.ts` — a real `fetch()`-based HTTP client (`ingestGraphragDocument`, `searchGraphragDocuments`) for `the private services repo/<private>/microservices/graphrag-complete`'s real API (`POST /graphrag/documents`, `POST /graphrag/search`, `GET /graphrag/session/{id}`). This is the first code in this repo to reference that Python service at all — before this change, grepping the whole `packages/` tree for any reference to GraphRAG/Vector Search/Halting Detection's ports or names returned zero matches: the TS/Cloudflare-Workers kernel and the Python microservices platform had never talked to each other over a network in code, despite sharing a design language (JITNA packets, the 8-dimension RCTDB schema).
+- `syncToGraphRag()` in `packages/intent-loop/src/worker.ts` — every completed (not gate-rejected, not failed) `run_intent_loop` call now best-effort ingests a real summary of its intent + outcome into GraphRAG's semantic memory, gated on an optional `GRAPHRAG_BASE_URL` env var (unset by default, since GraphRAG has no public deployment yet — silent no-op exactly like `RCTDB_LOG_DO`'s missing-binding behavior). This is deliberately additive to RCTDB logging, not a replacement: RCTDB records a structured 8-dimension audit trail; GraphRAG makes that content semantically *searchable*, which an audit log alone never was.
+- `tests/graphrag_bridge.test.mjs` — starts the REAL Python `graphrag-complete` service as a real `uvicorn` subprocess (not a mock), calls the compiled `syncToGraphRag()` with a realistic completed `IntentResult`, and makes a real HTTP search call against the same live instance to confirm the document genuinely arrived and is found by real (hashing-trick) embedding similarity — the actual cross-language, cross-repo round trip, not merely that a `fetch()` call didn't throw. Also proves the silent-no-op contract (no base URL configured) and that a failed/rejected result is never synced (verified via GraphRAG's own real `/graphrag/stats` document count, not an assertion on our own code). Since this spans two separate repos checked out as siblings, the test skips cleanly (not a confusing crash) if the Python repo isn't present alongside this one.
+
+126 tests total across 11 files, all passing (3 new), zero regressions.
+
 ## Unreleased (2026-09-13, part 4) — real TOON + zlib compression for `.jitna`, verified cross-language
 
 ### Added
