@@ -133,3 +133,37 @@ test("syncToGraphRag: a gate-rejected/failed result (no real output) is never sy
   // have added a 6th.
   assert.equal(stats.total_documents, 5);
 });
+
+test("syncToGraphRag: a trailing slash in GRAPHRAG_BASE_URL (an easy real misconfiguration) does not silently break every sync", { skip: !GRAPHRAG_AVAILABLE }, async (t) => {
+  const server = startGraphRagServer();
+  t.after(() => {
+    server.kill();
+  });
+  await waitForHealth(`${GRAPHRAG_BASE_URL}/health`);
+
+  // Found for real (2026-09-13): naive string concatenation
+  // (`${baseUrl}/graphrag/documents`) against a base URL with a trailing
+  // slash produces a double-slash path that FastAPI 404s on - and since
+  // syncToGraphRag() swallows all errors as best-effort, that 404 was
+  // completely silent. This must not regress.
+  const envWithTrailingSlash = { GRAPHRAG_BASE_URL: `${GRAPHRAG_BASE_URL}/` };
+  const uniqueMarker = `trailing-slash-marker-${Date.now()}`;
+  const packet = { intent: `test trailing slash handling ${uniqueMarker}` };
+  const result = {
+    intent_hash: "trailing-slash-test",
+    state: "completed",
+    output: { output: `content for trailing slash test ${uniqueMarker}` },
+    latency_ms: 1,
+    cache_hit: false,
+    metadata: {},
+  };
+
+  await syncToGraphRag(envWithTrailingSlash, "trailing-slash-session", packet, result);
+
+  // Confirm it actually arrived (not just that syncToGraphRag didn't
+  // throw - it swallows errors, so a silent 404 would look identical to
+  // success from syncToGraphRag's own return value alone).
+  const session = await searchGraphragDocuments(GRAPHRAG_BASE_URL, uniqueMarker, "vector", 5);
+  const found = session.results.find((r) => r.content.includes(uniqueMarker));
+  assert.ok(found, "a document synced through a base URL with a trailing slash must still genuinely arrive in GraphRAG");
+});

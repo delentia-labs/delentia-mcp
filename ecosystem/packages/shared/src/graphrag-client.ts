@@ -38,6 +38,22 @@ export interface GraphRagSearchSession {
 export type GraphRagSearchMode = "keyword" | "vector" | "graph" | "hybrid" | "graphrag";
 
 /**
+ * Strips any trailing slash(es) from a configured base URL. Found for
+ * real (2026-09-13): a base URL configured with a trailing slash (an easy
+ * mistake — e.g. pasted from a browser address bar, which often appends
+ * one) silently produced a double-slash path like
+ * `http://host//graphrag/documents`, which FastAPI/uvicorn 404s on rather
+ * than normalizing — and since callers of this client (syncToGraphRag)
+ * deliberately swallow all errors as best-effort, that 404 would never
+ * surface anywhere. Every request path in this file goes through this
+ * normalization so a trailing slash in configuration can never cause a
+ * silent, permanent failure.
+ */
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+/**
  * Ingests one document into GraphRAG's real, runtime-searchable document
  * store (see graphrag_engine.py's add_document()). Throws on any non-200
  * response or network failure — callers that want "best effort, never
@@ -50,7 +66,7 @@ export async function ingestGraphragDocument(
   content: string,
   metadata: Record<string, unknown> = {}
 ): Promise<GraphRagIngestResult> {
-  const response = await fetch(`${baseUrl}/graphrag/documents`, {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/graphrag/documents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content, metadata }),
@@ -75,7 +91,8 @@ export async function searchGraphragDocuments(
   mode: GraphRagSearchMode = "vector",
   topK = 5
 ): Promise<GraphRagSearchSession> {
-  const searchResponse = await fetch(`${baseUrl}/graphrag/search`, {
+  const base = normalizeBaseUrl(baseUrl);
+  const searchResponse = await fetch(`${base}/graphrag/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, mode, top_k: topK }),
@@ -85,7 +102,7 @@ export async function searchGraphragDocuments(
   }
   const { session_id: sessionId } = (await searchResponse.json()) as { session_id: string };
 
-  const sessionResponse = await fetch(`${baseUrl}/graphrag/session/${sessionId}`);
+  const sessionResponse = await fetch(`${base}/graphrag/session/${sessionId}`);
   if (!sessionResponse.ok) {
     throw new Error(`GraphRAG session fetch failed: HTTP ${sessionResponse.status} ${await sessionResponse.text()}`);
   }
