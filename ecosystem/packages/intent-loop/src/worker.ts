@@ -22,6 +22,13 @@ interface Env {
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
   RCTDB_LOG_DO?: DurableObjectNamespace;
+  /** Shared secret required (via the x-bridge-api-key header) to call
+   * GET /rctdb/query — the reverse direction of the bridge, letting a
+   * Python service query this kernel's own RCTDB audit log over real
+   * HTTP. Unset means that route always returns 501, not an open/
+   * unauthenticated endpoint. Set via `wrangler secret put
+   * BRIDGE_API_KEY` at deploy time — never committed. */
+  BRIDGE_API_KEY?: string;
   /** Base URL of a running graphrag-complete instance (e.g.
    * http://127.0.0.1:8013 in local dev, or a public URL once deployed).
    * Optional — when unset, syncToGraphRag() is a silent no-op, the same
@@ -357,6 +364,51 @@ export default {
           }),
           { headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
+      }
+
+      if (url.pathname === "/rctdb/query" && request.method === "GET") {
+        // The reverse direction of the bridge: a Python service (or
+        // anything else) can query this TS kernel's own RCTDB audit log
+        // over real HTTP, instead of only ever being synced INTO from the
+        // TS side. Requires a shared secret (BRIDGE_API_KEY, set via
+        // `wrangler secret put BRIDGE_API_KEY` — never committed) since
+        // RCTDB log entries can contain real intent text and FDIA scores,
+        // not public data. Unset BRIDGE_API_KEY (e.g. no deployment has
+        // configured it yet) means this route always returns 501, not a
+        // silent bypass of auth.
+        if (!env.BRIDGE_API_KEY) {
+          return new Response(JSON.stringify({ error: "Reverse bridge not configured on this deployment (BRIDGE_API_KEY unset)" }), {
+            status: 501,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const providedKey = request.headers.get("x-bridge-api-key");
+        if (providedKey !== env.BRIDGE_API_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        if (!env.RCTDB_LOG_DO) {
+          return new Response(JSON.stringify({ error: "RCTDB_LOG_DO binding not configured" }), {
+            status: 501,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const sessionId = url.searchParams.get("session_id");
+        if (!sessionId) {
+          return new Response(JSON.stringify({ error: "session_id query parameter is required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const doId = env.RCTDB_LOG_DO.idFromName(sessionId);
+        const stub = env.RCTDB_LOG_DO.get(doId);
+        const doResponse = await stub.fetch(`http://rctdb/all`);
+        const entries = await doResponse.json();
+        return new Response(JSON.stringify({ session_id: sessionId, entries }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
       }
 
       if (url.pathname === "/mcp" && request.method === "POST") {

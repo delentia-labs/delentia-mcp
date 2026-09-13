@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 8) — the reverse bridge: Python can now call back into the TS kernel
+
+### Added
+- `GET /rctdb/query?session_id=...` on `packages/intent-loop/src/worker.ts` — the first route in this repo callable FROM a Python service INTO the TS kernel, not the other way around. Requires a shared secret (`x-bridge-api-key` header matching a `BRIDGE_API_KEY` env var, set via `wrangler secret put` — never committed) since RCTDB log entries contain real intent text and FDIA scores. Unset `BRIDGE_API_KEY` means the route always returns 501 (disabled), never an open/unauthenticated bypass — verified for real, not assumed.
+- `tests/reverse_bridge.test.mjs` + `tests/reverse_bridge_check.py` — starts a REAL `wrangler dev --local` server (Miniflare-simulated; no Cloudflare account or deployment involved, confirmed local-only) and spawns a REAL Python subprocess that makes the actual authenticated HTTP calls, genuinely proving Python-calls-TS rather than Node calling Node. Verifies for real: no API key → 401, wrong API key → 401, missing `session_id` → 400, correct key + valid session → 200 with the real (honestly empty, since nothing has been logged for that session) response from the real Durable Object. **Honest limitation**: verifying a populated round trip (log real data via a completed `run_intent_loop` call, then read it back through this route) needs a real `OPENROUTER_API_KEY`, not available in this environment — documented in both files rather than faked.
+
+### Fixed (found while building this test, not a bridge bug)
+- On Windows, `child_process.spawn(..., {shell: true})` for `npx wrangler dev` launches a `cmd.exe` wrapper; `child.kill()` only signals that wrapper, orphaning the actual `wrangler`/`workerd` process tree underneath (still bound to its port, never reaped). Found 3 such orphaned `workerd` processes left over from earlier attempts while diagnosing this. Fixed by spawning `wrangler`'s own JS entry point directly via `node` (no shell involved) plus a `taskkill /T /F` (Windows) / process-group `SIGKILL` (POSIX) fallback in test teardown, verified to leave zero orphaned processes across two consecutive runs.
+
+142 tests total across 16 files, all passing (2 new), zero regressions.
+
 ## Unreleased (2026-09-13, part 7) — the bridge completed: all 5 audited-real Python services now reachable
 
 ### Added

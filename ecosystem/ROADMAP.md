@@ -4,16 +4,27 @@ This roadmap tracks work on the live Cloudflare Workers MCP gateway
 (`packages/sovereign`, `packages/fdia`, `packages/rct7`, `packages/delta`,
 `packages/jitna`, `packages/shared`). It does not replace or duplicate
 `Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps.
-**Update 2026-09-13, part 7**: the bridge now covers all 5 of
+**Update 2026-09-13, part 8**: the bridge now covers all 5 of
 `the private services repo`'s Python services that were independently audited
 real this session — GraphRAG, Vector Search, Halting Detection, Graph
 Traversal, and MOIP Planner — via `syncToGraphRag()`,
 `syncToVectorSearch()`, `checkGeneratedCodeHalts()`,
-`syncToGraphTraversal()`, and `analyzeIntentLoopTradeoffs()`. The other
-~32 (of ~37 with a `tests/` directory) services in that platform,
-including everything not yet independently audited, are still not
-reachable from here (see `TESTING_CANONICAL.md` for the verified
-per-tool status this roadmap is fixing).
+`syncToGraphTraversal()`, and `analyzeIntentLoopTradeoffs()` — **and, as
+of part 8, the reverse direction now exists too**: `GET /rctdb/query`
+lets an authenticated Python service read this kernel's own RCTDB log
+back. Real deployment of any of this (a public Cloudflare Worker URL, or
+a tunnel exposing the Python services) was explicitly deferred pending
+the user's decision on 2026-09-13 — asked directly given it's a real,
+hard-to-reverse action on live infrastructure, not a code change; user
+chose not to deploy yet. The other ~32 (of ~37 with a `tests/` directory)
+services in that platform, including everything not yet independently
+audited, are still not reachable from here (see `TESTING_CANONICAL.md`
+for the verified per-tool status this roadmap is fixing).
+
+## Done (2026-09-13, part 8)
+
+- [x] **The reverse bridge**: `GET /rctdb/query?session_id=...` on `packages/intent-loop/src/worker.ts`, the first route callable FROM Python INTO this TS kernel. Requires a shared-secret `x-bridge-api-key` header (`BRIDGE_API_KEY` env var, unset ⇒ the route is disabled with 501, never an open bypass). Verified with a real `wrangler dev --local` server (Miniflare-simulated, no Cloudflare account/deployment involved) and a real Python subprocess making the actual authenticated calls (`tests/reverse_bridge.test.mjs` + `tests/reverse_bridge_check.py`) — proves the auth/validation behavior for real; a full round trip with real populated data needs a real `OPENROUTER_API_KEY` not available in this environment, honestly documented rather than faked. Also found and fixed a real Windows-specific process-leak bug while building this test: `spawn(..., {shell:true})` for `npx wrangler dev` orphans the actual `wrangler`/`workerd` process tree on `.kill()` (3 such orphans found from earlier attempts) — fixed by spawning wrangler's JS entry directly via `node`, no shell involved.
+- [ ] **Real deployment deliberately not done**: asked the user directly (2026-09-13) whether to `wrangler deploy` the worker and/or open a `cloudflared` tunnel exposing the local Python services (which have no authentication of their own) to the public internet — both are real, hard-to-reverse actions on live infrastructure under a real Cloudflare account (`founder@delentia.com`, confirmed via `wrangler whoami`), not code changes, so this wasn't done unilaterally. User chose not to deploy yet. All 5+1 bridges (5 forward, 1 reverse) are real and tested but only actually reachable once a real deployment/tunnel exists.
 
 ## Done (2026-09-13, part 7)
 
