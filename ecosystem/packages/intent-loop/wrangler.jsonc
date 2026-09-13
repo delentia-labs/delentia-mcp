@@ -4,6 +4,20 @@
   "main": "src/worker.ts",
   "compatibility_date": "2025-02-14",
   "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RCTDB_LOG_DO",
+        "class_name": "RCTDBLogSessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RCTDBLogSessionDO"]
+    }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
     "SERVER_NAME": "Delentia Intent Loop MCP"

@@ -1,11 +1,49 @@
-import { IntentLoopEngine, type IntentPacket } from "./index.js";
-import { captureException } from "@delentia/shared";
+import { IntentLoopEngine, type IntentPacket, type IntentResult } from "./index.js";
+import { captureException, buildRctdbEntryFromIntentLoop } from "@delentia/shared";
+export { RCTDBLogSessionDO } from "@delentia/shared";
 
 interface Env {
   OPENROUTER_API_KEY?: string;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
+  RCTDB_LOG_DO?: DurableObjectNamespace;
+}
+
+/**
+ * Best-effort real logging of this run into the RCTDB-inspired 8-dimension
+ * log (see @delentia/shared/rctdb-log.ts for why this is a Durable Object
+ * rather than the separately-hosted database RCTDB was originally designed
+ * to be). Never blocks or fails the actual run_intent_loop response — a
+ * missing binding or a DO error is swallowed here, same as MEE growth
+ * logging in sovereign/fdia.
+ */
+export async function logToRctdb(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.RCTDB_LOG_DO) return;
+  try {
+    const specialistModel = result.output && typeof result.output === "object" ? (result.output as Record<string, unknown>).specialist_model : undefined;
+    const entry = buildRctdbEntryFromIntentLoop({
+      subjectUuid: sessionId,
+      queryText: packet.intent,
+      fdiaScore: result.fdia_score,
+      verdict: result.fdia_score !== undefined ? result.state : undefined,
+      specialistModel: typeof specialistModel === "string" ? specialistModel : undefined,
+      verifierModels: result.verification?.votes.map((v) => v.model),
+      verification: result.verification ? { passed: result.verification.passed, confidence: result.verification.confidence } : null,
+      meeStep: result.mee_step ? { g_before: result.mee_step.g_before, g_after: result.mee_step.g_after, delta: result.mee_step.delta } : null,
+      provenance: { source: "run_intent_loop", version: "0.1.0" },
+    });
+
+    const doId = env.RCTDB_LOG_DO.idFromName(sessionId);
+    const stub = env.RCTDB_LOG_DO.get(doId);
+    await stub.fetch("http://rctdb/append", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+  } catch {
+    // Non-blocking — RCTDB logging must never break the actual response.
+  }
 }
 
 // One engine instance per Worker isolate. Memory (recall/store) is real but
@@ -23,7 +61,7 @@ function getEngine(apiKey: string): IntentLoopEngine {
 }
 
 export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const serverName = env.SERVER_NAME || "Delentia Intent Loop MCP";
     const corsHeaders = { "Access-Control-Allow-Origin": "*" };
@@ -135,6 +173,9 @@ export default {
 
           const engine = getEngine(env.OPENROUTER_API_KEY);
           const result = await engine.process(packet);
+
+          const rctdbSessionId = packet.session_id ?? "default";
+          ctx.waitUntil(logToRctdb(env, rctdbSessionId, packet, result));
 
           return new Response(
             JSON.stringify({

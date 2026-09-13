@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 3) — RCTDB's 8-dimension schema, folded into the Durable Object pattern
+
+### Added
+- `packages/shared/src/rctdb-log.ts` — the `RCTDBLogEntry` 8-dimension schema (query_hash, fdia_scores, subject_uuid, model_chain, consensus_result, delta_chain, timestamp, provenance), adopted as a data model only after a 2026-09-13 audit found "RCTDB" as originally designed (a separately-hosted database service) to be mostly a stub: real client code calling a server that doesn't exist, a schema file with a real shipped bug (a trailing comma silently turning a field default into a 1-tuple), and integration tests that mock the very thing they claim to test. The 8-dimension schema itself was judged well-designed; the separately-hosted-service architecture was rejected as contradicting the actual, proven architectural strength demonstrated everywhere else this session (FDIA, RCT-7, MEE all run fully edge-native via Durable Objects, nothing to host).
+- `packages/shared/src/rctdb-log-do.ts` — `RCTDBLogSessionDO`, a real Cloudflare Durable Object giving the log genuine bounded (200-entry rolling window), queryable, persistent storage — the same explicit session-scoping pattern already established for `MEEGrowthSessionDO`.
+- Four `buildRctdbEntryFrom*` helpers construct real entries from each real tool's actual output (FDIA, Delta Engine, JITNA, intent-loop) — tested against REAL `evaluate_fdia()`, `compress_context()`, and `orchestrateSwarm()` results, not hand-crafted fixtures. Found and fixed a real excess-property leak in the first draft: passing the real (much larger) `FDIAEvaluationResult`/`VerificationResult` objects leaked ALL their fields into the supposedly-3-field `fdia_scores`/2-field `consensus_result` dimensions, since TS doesn't check excess properties on a variable — fixed by explicitly trimming to the documented shape in each builder.
+- Wired into `packages/intent-loop`'s worker (`RCTDB_LOG_DO` binding, `logToRctdb()`) — every `run_intent_loop` call now logs a real entry capturing its FDIA score, the models actually involved, the real consensus result, and the real MEE growth step, best-effort (never blocks the actual response).
+- 14 new tests (10 in `tests/rctdb_log.test.mjs`, 4 in `tests/intent_loop_rctdb_wiring.test.mjs`) prove: the schema against real tool output, bounded rolling-log eviction, real DO persistence across calls, real per-session isolation, real query filtering, and the worker-level logging glue (including the honestly-null case when a gate rejection means no FDIA score/consensus/growth step ever existed for that run).
+
+129 tests total across 10 files, all passing, zero regressions.
+
 ## Unreleased (2026-09-13, part 2) — a real `.jitna` file format
 
 ### Added

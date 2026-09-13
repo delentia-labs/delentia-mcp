@@ -20,9 +20,11 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
 ## Test suite
 
-115 tests across 8 files, all passing as of 2026-09-13 (`npm run test:all`),
+129 tests across 10 files, all passing as of 2026-09-13 (`npm run test:all`),
 including `tests/jitna_file_format.test.mjs` (8 — see "A real .jitna file
-format" below):
+format" below), `tests/rctdb_log.test.mjs` (10) and
+`tests/intent_loop_rctdb_wiring.test.mjs` (4) — see "RCTDB's 8-dimension
+schema" below:
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
 `tests/test_fdia_policy_engine.mjs` (14), `tests/fdia_deep_hypothesis.test.mjs`
 (24), `tests/intent_loop.test.mjs` (24 — deterministic, offline suite for the
@@ -321,6 +323,68 @@ caller).
 growth signal (FDIA-score-based) and `intent-loop`'s (confidence-based)
 are not unified into one semantic — reconciling them, if ever desired, is
 a real design question flagged in `ROADMAP.md`, not an oversight.
+
+## RCTDB's 8-dimension schema, folded into the Durable Object pattern (2026-09-13)
+
+Background: a dedicated audit found "RCTDB" (Reverse Component Thinking
+Database) as originally designed — a standalone, separately-hosted
+database service with an 8-dimension schema (query_hash, fdia_scores,
+subject_uuid, model_chain, consensus_result, delta_chain, timestamp,
+provenance) — to be mostly a stub: real client code (`rctdb_client.py`,
+~8 near-duplicate copies) calling `http://localhost:8010` with no server
+anywhere implementing those routes; a schema file (`universal_schema_v2.py`)
+with a real shipped bug (`Field(...),` — a trailing comma silently turning
+a field default into a 1-tuple, never caught because it was never actually
+instantiated before shipping); and "integration" tests that mock the very
+HTTP client they claim to integration-test (106 tests passing, zero of
+them touching a real server).
+
+**The recommendation this implements**: keep the 8-dimension schema (a
+genuinely reasonable audit/provenance log design) but reject the
+separately-hosted-service architecture — a standalone database this
+ecosystem would have to build a server for, host, and operate contradicts
+the actual, proven architectural strength demonstrated everywhere else
+this session: FDIA, RCT-7, and MEE (via `MEEGrowthSessionDO`) all run
+fully edge-native, zero external services to stand up. `packages/shared/src/rctdb-log.ts`
+defines the schema as plain TypeScript types; `packages/shared/src/rctdb-log-do.ts`'s
+`RCTDBLogSessionDO` gives it real, bounded (200-entry rolling window),
+queryable, Durable-Object-backed persistence — same explicit
+session-scoping pattern as `MEEGrowthSessionDO`.
+
+**Tested against REAL output from 3 different real tools, not hand-crafted
+fixtures** — this was explicitly requested and done:
+- `buildRctdbEntryFromFdia()` against a real `evaluate_fdia()` result.
+- `buildRctdbEntryFromDelta()` against a real `compress_context()` result — `query_hash` is the tool's own real `context_hash`, `delta_chain` its real `reduction_percentage`.
+- `buildRctdbEntryFromJitna()` against a real `orchestrateSwarm()` packet — `model_chain` is the actually-routed pillar, `delta_chain` the packet's real D/delta.
+- `buildRctdbEntryFromIntentLoop()` covers all 8 dimensions at once (the one pipeline with FDIA + model execution + consensus + MEE growth all in one run).
+
+**A real bug found and fixed while doing this**: the first draft of
+`buildRctdbEntryFromFdia`/`buildRctdbEntryFromIntentLoop` passed the real
+`FDIAEvaluationResult`/`VerificationResult` objects straight through into
+`fdia_scores`/`consensus_result` — since those real objects carry many more
+fields than the 3/2 documented ones (`audit_digest`, `reason`, `violations`,
+a full `votes` array, ...), and TypeScript does not check excess
+properties on a variable (only on an inline object literal), every one of
+those extra fields silently leaked into the stored entry. A schema whose
+real shape depends on whatever the caller happens to pass is not a real
+schema — fixed by explicitly trimming to the documented fields in each
+builder function.
+
+**Wired into `packages/intent-loop`'s worker** (`RCTDB_LOG_DO` binding,
+exported `logToRctdb()`): every `run_intent_loop` call logs a real entry —
+best-effort, never blocking the actual response on a missing binding or DO
+error. Not yet wired into `sovereign`/`fdia` (they'd only ever produce
+FDIA-only entries, still real but narrower — a reasonable next step).
+
+14 new tests (10 in `tests/rctdb_log.test.mjs`, 4 in
+`tests/intent_loop_rctdb_wiring.test.mjs`) prove: the schema against real
+tool output (above), a bounded rolling log that evicts its oldest entries
+rather than growing without limit, real Durable Object persistence across
+separate calls to the same session, real isolation between different
+session ids, real query filtering by `subject_uuid`/`query_hash`, a 400
+rejection for a malformed entry, and the worker-level logging glue
+including the honestly-`null` case for a gate-rejected run (no FDIA score,
+consensus, or growth step ever existed for that run — never fabricated).
 
 ## A real `.jitna` file format (2026-09-13)
 

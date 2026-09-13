@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-13, part 3)
+
+- [x] **RCTDB's 8-dimension schema adopted (as a data model, not a separately-hosted service)** and folded into the same Durable Object pattern as `MEEGrowthSessionDO` — new `RCTDBLogSessionDO` + 4 `buildRctdbEntryFrom*` helpers, tested against real FDIA/Delta/JITNA output, wired into `intent-loop`'s worker for real production logging. See `TESTING_CANONICAL.md`'s "RCTDB's 8-dimension schema" section for the full recommendation this implements and why the separately-hosted-service design was explicitly rejected.
+- [ ] Not yet wired into `sovereign`/`fdia` workers (they'd log FDIA-only entries — real but narrower than intent-loop's full 8 dimensions; a reasonable next step, not done here). No compact encoding — entries are stored as plain JSON in the DO, same as MEE growth state.
+
 ## Done (2026-09-13, part 2)
 
 - [x] **JITNA is now a real file format**, not just an in-memory object. `packages/shared/src/jitna-file.ts` adds `serializeJitnaPacket`/`parseJitnaPacket`/`writeJitnaFile`/`readJitnaFile`, an explicit `$jitna_format` marker resolving a real naming collision against 254 unrelated pre-existing `.jitna` files elsewhere in the repo (a different, YAML-ish agent-template format in `the private services repo`'s private-UI templates), and a SHA-256 checksum catching tampering/corruption. 8 new tests use real packets from the real `orchestrateSwarm()` tool and real disk I/O.
