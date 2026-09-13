@@ -42,7 +42,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { evaluateFDIA, type FDIARequest } from "@delentia/shared";
+import { evaluateFDIA, type FDIARequest, MEEGrowthTracker, confidenceToGrowthDelta, type MEEStepRecord } from "@delentia/shared";
 import { executeRCT7, type RCT7ExecutionResult } from "@delentia/mcp-rct7";
 
 // ============================================================================
@@ -534,112 +534,23 @@ export class EvolutionCommitter {
 }
 
 // ============================================================================
-// Pillar 5.5 — MEE Growth Tracker (real TS port of the Python MEE formula,
-// driven by the verifier's real consensus confidence)
+// Pillar 5.5 — MEE Growth Tracker
 //
-// Added 2026-09-12. Context: Delentia-OS/rct_control_plane/mee_engine.py
-// implements a real, tested growth formula (G(t+1) = G(t) x (1+MΔ) x R_t)
-// that was found orphaned during this session's audit, then wired into
-// algorithm_kernel_41.py's ALGO-07 using each pipeline run's FDIA score as
-// its growth signal. That Python engine cannot be called from here — this
-// package deploys to Cloudflare Workers, which has no Python runtime and no
-// network path to a local Python process — so this is a from-scratch TS
-// port of the IDENTICAL formula and constants (not a new design), applied
-// to a genuinely different, complementary signal: the ConsensusVerifier's
-// real post-execution confidence, rather than the pre-execution FDIA score.
-// Conceptually: FDIA's I answers "how well do we understand the intent
-// going in"; this growth tracker answers "how often does what we produced
-// actually hold up to independent scrutiny" — the two are different
-// moments in the pipeline and were never meant to be the same signal.
+// MEEGrowthTracker/confidenceToGrowthDelta now live in @delentia/shared
+// (moved there 2026-09-13 so sovereign/fdia can share the exact same growth
+// math via a Durable Object instead of each reimplementing the formula) —
+// re-imported above. Original context preserved: this is a from-scratch TS
+// port of Delentia-OS/rct_control_plane/mee_engine.py's real, tested growth
+// formula (G(t+1) = G(t) x (1+MΔ) x R_t), necessary because this package
+// (and sovereign/fdia) deploy to Cloudflare Workers, which has no Python
+// runtime and no network path to the Python engine. Here specifically, it's
+// driven by the ConsensusVerifier's real post-execution confidence rather
+// than the pre-execution FDIA score: FDIA's I answers "how well do we
+// understand the intent going in"; this growth tracker answers "how often
+// does what we produced actually hold up to independent scrutiny" — the
+// two are different moments in the pipeline and were never meant to be the
+// same signal. See @delentia/shared/src/mee-growth.ts for the formula.
 // ============================================================================
-
-const MEE_META_RATE = 0.1; // M — matches mee_engine.py's DEFAULT_META_RATE
-const MEE_RESILIENCE_PENALTY = 0.02; // matches mee_engine.py's RESILIENCE_PENALTY
-const MEE_RESILIENCE_RECOVERY = 0.005; // matches mee_engine.py's RESILIENCE_RECOVERY
-const MEE_G_FLOOR = 0.1; // matches mee_engine.py's G_FLOOR
-const MEE_G_CAP = 1000.0; // matches mee_engine.py's G_CAP
-
-export interface MEEStepRecord {
-  step: number;
-  g_before: number;
-  g_after: number;
-  delta: number;
-  meta_rate: number;
-  resilience: number;
-  governance_violation: boolean;
-  growth_ratio: number;
-  timestamp: string;
-}
-
-export class MEEGrowthTracker {
-  private g: number;
-  private resilience = 1.0;
-  private stepCount = 0;
-  private readonly gInitial: number;
-
-  constructor(gInitial = 1.0, private metaRate = MEE_META_RATE) {
-    this.g = Math.max(gInitial, MEE_G_FLOOR);
-    this.gInitial = this.g;
-  }
-
-  /** Advances one real step: G(t+1) = max(G_FLOOR, min(G_CAP, G(t) x (1+MΔ) x R_t)) — same formula as mee_engine.py's MEESession.step(). */
-  step(delta: number, governanceViolation = false): MEEStepRecord {
-    this.resilience = governanceViolation
-      ? Math.max(0.5, this.resilience - MEE_RESILIENCE_PENALTY)
-      : Math.min(1.0, this.resilience + MEE_RESILIENCE_RECOVERY);
-
-    const g_before = this.g;
-    let g_after = g_before * (1 + this.metaRate * delta) * this.resilience;
-    g_after = Math.max(MEE_G_FLOOR, Math.min(MEE_G_CAP, g_after));
-    this.g = g_after;
-    this.stepCount += 1;
-
-    return {
-      step: this.stepCount,
-      g_before,
-      g_after,
-      delta,
-      meta_rate: this.metaRate,
-      resilience: this.resilience,
-      governance_violation: governanceViolation,
-      growth_ratio: g_before !== 0 ? g_after / g_before : 1,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  get value(): number {
-    return this.g;
-  }
-
-  get currentResilience(): number {
-    return this.resilience;
-  }
-
-  get steps(): number {
-    return this.stepCount;
-  }
-
-  summary(): { g_initial: number; g_current: number; total_growth_ratio: number; steps: number; resilience: number } {
-    return {
-      g_initial: this.gInitial,
-      g_current: this.g,
-      total_growth_ratio: this.gInitial !== 0 ? this.g / this.gInitial : 1,
-      steps: this.stepCount,
-      resilience: this.resilience,
-    };
-  }
-}
-
-/**
- * Maps a real ConsensusVerifier confidence (0-1, fraction of models that
- * voted YES) to a signed MEE delta in roughly [-1, 1]: confidence=1.0 (full
- * agreement) -> delta=+1 (strong growth signal); confidence=0.0 (full
- * disagreement) -> delta=-1 (strong decline signal); confidence=0.5 (a
- * coin-flip split) -> delta=0 (neutral, no real signal either way).
- */
-export function confidenceToGrowthDelta(confidence: number): number {
-  return (confidence - 0.5) * 2;
-}
 
 // ============================================================================
 // The orchestrating engine

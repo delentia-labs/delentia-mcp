@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (2026-09-13) — MEE growth given real persistent state via Cloudflare Durable Objects
+
+### Added
+- `MEEGrowthTracker`/`MEEStepRecord`/`confidenceToGrowthDelta` moved from `packages/intent-loop` into `@delentia/shared` (`packages/shared/src/mee-growth.ts`) so `sovereign` and `fdia` can share the exact same growth math via a Durable Object, instead of a third reimplementation of the formula. `packages/intent-loop` now imports it from `@delentia/shared`; no behavior change there (same 24 tests still pass).
+- New `MEEGrowthSessionDO` (`packages/shared/src/mee-session-do.ts`) — a real Cloudflare Durable Object providing genuine persistent storage for MEE growth state, bound into both `sovereign` and `fdia` workers as `MEE_SESSION_DO`. Session scoping is a **deliberate, documented** decision, specifically to avoid repeating the exact "one hardcoded global name for every caller" bug already flagged in this file for the other 4 pillar workers' Durable Objects: omitting `session_id` resolves to a shared `"default"` aggregate (the deployment's overall growth trend, matching `mee_engine.py`'s original single-session design intent); passing an explicit `session_id` gets an isolated per-caller/per-agent trajectory instead.
+- `sovereign` and `fdia` workers' `evaluate_fdia` now step this real, persistent tracker on every call — `delta = future_score - 0.5`, `governance_violation = !authorized` (the same growth-signal design already used in `Delentia-OS/rct_control_plane/algorithm_kernel_41.py`'s ALGO-07 wiring for a bare authorization gate with no execution/verification step of its own) — and return it as a new `mee_growth` response field. Best-effort: a missing binding or a DO error never blocks the `evaluate_fdia` response itself.
+- `tests/helpers/fake-durable-object.mjs` — a reusable test harness that runs the REAL `MEEGrowthSessionDO` class (not a mock of it) against real in-memory storage, correctly modeling Cloudflare's actual semantics: the same `session_id` always resolves to the same persistent instance, different ids resolve to fully isolated ones.
+- 10 new tests in `tests/sovereign_rct7_synthesis.test.mjs` and 6 new tests in `tests/fdia_worker_rct7_synthesis.test.mjs`, proving (against the real DO class): growth genuinely persists across calls (G compounds, not reset per request), a distinct `session_id` gets a genuinely isolated trajectory, an unauthorized result degrades resilience by exactly the documented penalty, and the whole thing is absent-but-harmless when no `MEE_SESSION_DO` binding exists (backward compatible).
+
+107 tests total across 7 files, all passing, zero regressions.
+
 ## Unreleased (2026-09-12, part 5) — Tier 1 (fdia worker) + Tier 2 (MEE growth from real verifier confidence)
 
 ### Added — Tier 1: RCT-7 synthesis extended to the standalone `fdia` worker

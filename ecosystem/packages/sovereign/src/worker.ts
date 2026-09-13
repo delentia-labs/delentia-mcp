@@ -1,4 +1,5 @@
 import { evaluateFDIA, FDIAEngine, validatePolicy, type ArchitectCustomPolicy } from "@delentia/shared";
+export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
 import { orchestrateSwarm, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
@@ -13,6 +14,38 @@ interface Env {
   DELENTIA_GATEWAY_SECRET?: string;
   ZUPLO_SHARED_SECRET?: string;
   ENTERPRISE_API_KEYS?: string;
+  MEE_SESSION_DO?: DurableObjectNamespace;
+}
+
+/**
+ * Steps the MEE growth Durable Object for `sessionId` (defaults to "default",
+ * a single shared aggregate representing the deployment's overall growth —
+ * a deliberate, documented choice, not the silent global-DO pattern flagged
+ * as a real bug elsewhere in ROADMAP.md; pass an explicit session_id in the
+ * request to get an isolated per-caller trajectory instead). Best-effort:
+ * a missing binding or a DO error never blocks the evaluate_fdia response —
+ * growth tracking is an observability signal, not a security gate.
+ */
+async function stepMeeGrowth(
+  env: Env,
+  sessionId: string,
+  delta: number,
+  governanceViolation: boolean
+): Promise<{ step: unknown; summary: unknown } | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  try {
+    const doId = env.MEE_SESSION_DO.idFromName(sessionId);
+    const stub = env.MEE_SESSION_DO.get(doId);
+    const resp = await stub.fetch("http://mee/step", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta, governance_violation: governanceViolation, session_id: sessionId }),
+    });
+    if (!resp.ok) return undefined;
+    return (await resp.json()) as { step: unknown; summary: unknown };
+  } catch {
+    return undefined;
+  }
 }
 
 // In-memory policy fallback
@@ -288,9 +321,26 @@ export default {
             dual_signoff_confirmed: args.dual_signoff_confirmed ?? false,
           });
 
+          // Real, persistent MEE growth step (Durable-Object-backed, added
+          // 2026-09-13). Unlike intent-loop's confidence-driven growth
+          // (a post-execution signal from ConsensusVerifier — this worker
+          // has no execution/verification pipeline, only the gate), the
+          // growth signal here is the gate's own margin above/below
+          // authorization: delta = future_score - 0.5, governance_violation
+          // = !authorized. This matches the same design already used in
+          // Delentia-OS/rct_control_plane/algorithm_kernel_41.py's ALGO-07
+          // wiring for a bare authorization gate with no execution step.
+          const meeGrowth = await stepMeeGrowth(
+            env,
+            typeof args.session_id === "string" && args.session_id.trim().length > 0 ? args.session_id : "default",
+            result.future_score - 0.5,
+            !result.authorized
+          );
+
           const outputResult = {
             ...result,
             ...(rct7Trail ? { rct7_synthesis: { verified_alignment_score: rct7Trail.verified_alignment_score, derived_intent_precision: intentPrecision } } : {}),
+            ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
             _meta: tierMeta,
           };
 
@@ -461,7 +511,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); BLOCKED_PREEMPTION or a SECURITY_* verdict means it did not, or A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (use rct_think or orchestrate_swarm first, then evaluate_fdia on the resulting concrete action). OPTIONAL RCT-7 SYNTHESIS: pass `problem_statement` (and optionally `environment_context`/`target_desired_outcome`) instead of `intent_precision` to have this worker run the real RCT-7 7-stage decomposition and derive intent_precision from its actual alignment score (range 0.5-2.0) rather than you supplying an arbitrary number — the response then includes an `rct7_synthesis` field. Omit `problem_statement` for byte-identical behavior to before this option existed.",
+                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); BLOCKED_PREEMPTION or a SECURITY_* verdict means it did not, or A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (use rct_think or orchestrate_swarm first, then evaluate_fdia on the resulting concrete action). OPTIONAL RCT-7 SYNTHESIS: pass `problem_statement` (and optionally `environment_context`/`target_desired_outcome`) instead of `intent_precision` to have this worker run the real RCT-7 7-stage decomposition and derive intent_precision from its actual alignment score (range 0.5-2.0) rather than you supplying an arbitrary number — the response then includes an `rct7_synthesis` field. Omit `problem_statement` for byte-identical behavior to before this option existed. Every call also steps a real, Durable-Object-persisted MEE growth tracker (delta = future_score - 0.5, a governance violation when unauthorized) and returns it as `mee_growth` — see `session_id` below to scope it per-caller instead of the shared deployment-wide default.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -487,6 +537,10 @@ export default {
                         target_desired_outcome: {
                           type: "string",
                           description: "Optional, only used with problem_statement: the desired end state, feeding RCT-7's lexical_alignment signal.",
+                        },
+                        session_id: {
+                          type: "string",
+                          description: "Optional: scopes the real, Durable-Object-persisted MEE growth tracker this call steps. Omit for the shared \"default\" aggregate (the whole deployment's overall growth trend); pass your own caller/agent id for an isolated growth trajectory. The response's mee_growth field reflects whichever session this resolves to.",
                         },
                         authorized: {
                           type: "boolean",

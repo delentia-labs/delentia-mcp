@@ -10,11 +10,13 @@ import {
   createSessionToken,
   verifySessionToken,
 } from "@delentia/shared";
+export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
 export { FDIASessionDO } from "./session-do.js";
 
 interface Env {
   FDIA_SESSION_DO: DurableObjectNamespace;
+  MEE_SESSION_DO?: DurableObjectNamespace;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
@@ -25,6 +27,37 @@ interface Env {
   POLICY_KV?: WorkersPolicyKV;
   FDIA_POLICY_RULES_JSON?: string;
   FDIA_POLICY_JSON?: string;
+}
+
+/**
+ * Steps the MEE growth Durable Object for `sessionId` — same design as
+ * packages/sovereign/src/worker.ts's stepMeeGrowth (kept as a duplicate
+ * function rather than a shared helper since each worker's Env type
+ * differs and this is genuinely tiny; the actual growth MATH lives in one
+ * place, @delentia/shared's MEEGrowthTracker, which both call through the
+ * DO). Best-effort: a missing binding or DO error never blocks the
+ * evaluate_fdia response.
+ */
+async function stepMeeGrowth(
+  env: Env,
+  sessionId: string,
+  delta: number,
+  governanceViolation: boolean
+): Promise<{ step: unknown; summary: unknown } | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  try {
+    const doId = env.MEE_SESSION_DO.idFromName(sessionId);
+    const stub = env.MEE_SESSION_DO.get(doId);
+    const resp = await stub.fetch("http://mee/step", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta, governance_violation: governanceViolation, session_id: sessionId }),
+    });
+    if (!resp.ok) return undefined;
+    return (await resp.json()) as { step: unknown; summary: unknown };
+  } catch {
+    return undefined;
+  }
 }
 
 export default {
@@ -362,9 +395,23 @@ export default {
             custom_policy: activePolicy,
           };
 
+          const evaluated = evaluateFDIA(params);
+
+          // Real, persistent MEE growth step (Durable-Object-backed) — same
+          // design as packages/sovereign: delta = future_score - 0.5,
+          // governance_violation = !authorized (this worker has no
+          // execution/verification pipeline, only the gate itself).
+          const meeGrowth = await stepMeeGrowth(
+            env,
+            typeof args.session_id === "string" && args.session_id.trim().length > 0 ? args.session_id : "default",
+            evaluated.future_score - 0.5,
+            !evaluated.authorized
+          );
+
           const result = {
-            ...evaluateFDIA(params),
+            ...evaluated,
             ...(rct7Trail ? { rct7_synthesis: { verified_alignment_score: rct7Trail.verified_alignment_score, derived_intent_precision: intentPrecision } } : {}),
+            ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
           };
 
           // Asynchronously record audit log in Durable Object
@@ -407,7 +454,7 @@ export default {
                 tools: [
                   {
                     name: "evaluate_fdia",
-                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); a SECURITY_* verdict means A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (plan first, then evaluate_fdia on the resulting concrete action). OPTIONAL RCT-7 SYNTHESIS: pass `problem_statement` (and optionally `environment_context`/`target_desired_outcome`) instead of `intent_precision` to have this worker run the real RCT-7 7-stage decomposition and derive intent_precision from its actual alignment score (range 0.5-2.0) rather than you supplying an arbitrary number — the response then includes an `rct7_synthesis` field. Omit `problem_statement` for byte-identical behavior to before this option existed.",
+                    description: "Computes the FDIA safety score F = (D^I) x A to decide whether a proposed action should be authorized before it runs. F is a single 0.0-1.0 number that collapses to exactly 0 whenever A = 0 (no amount of good data can rescue an unauthorized action); otherwise it grows with D (data quality) raised to the I (intent precision) exponent. AUTHORIZED means F met the policy's safety_threshold (default 0.5); a SECURITY_* verdict means A was denied outright — read `verdict` and `reason` to decide how to proceed. USE WHEN: immediately before executing a specific action, especially one that is destructive, irreversible, or security/credential-sensitive. DO NOT USE WHEN: the action is routine and read-only (adds latency for no behavior change), you need to change the rules being checked (use configure_policy instead), or you are still planning multi-step work (plan first, then evaluate_fdia on the resulting concrete action). OPTIONAL RCT-7 SYNTHESIS: pass `problem_statement` (and optionally `environment_context`/`target_desired_outcome`) instead of `intent_precision` to have this worker run the real RCT-7 7-stage decomposition and derive intent_precision from its actual alignment score (range 0.5-2.0) rather than you supplying an arbitrary number — the response then includes an `rct7_synthesis` field. Omit `problem_statement` for byte-identical behavior to before this option existed. Every call also steps a real, Durable-Object-persisted MEE growth tracker (delta = future_score - 0.5, a governance violation when unauthorized) and returns it as `mee_growth` — see `session_id` below to scope it per-caller instead of the shared deployment-wide default.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -433,6 +480,10 @@ export default {
                         target_desired_outcome: {
                           type: "string",
                           description: "Optional, only used with problem_statement: the desired end state, feeding RCT-7's lexical_alignment signal.",
+                        },
+                        session_id: {
+                          type: "string",
+                          description: "Optional: scopes the real, Durable-Object-persisted MEE growth tracker this call steps. Omit for the shared \"default\" aggregate (the whole deployment's overall growth trend); pass your own caller/agent id for an isolated growth trajectory. The response's mee_growth field reflects whichever session this resolves to.",
                         },
                         authorized: {
                           type: "boolean",

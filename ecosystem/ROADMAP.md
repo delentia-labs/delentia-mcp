@@ -8,11 +8,15 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-13)
+
+- [x] **MEE growth now has real persistent state**, via a new Cloudflare Durable Object (`MEEGrowthSessionDO`, in `@delentia/shared`) bound into both `sovereign` and `fdia`. `MEEGrowthTracker` moved from `packages/intent-loop` into `@delentia/shared` so all 3 TS deployments share one canonical implementation. Session scoping is explicit and documented (default = shared deployment-wide aggregate; explicit `session_id` = isolated per-caller trajectory) — a deliberate design choice made specifically to avoid the "one hardcoded global name for every caller" bug already flagged below for the other 4 pillar workers. 16 new tests (10 + 6) run the REAL DO class against real in-memory storage via a reusable fake-namespace harness, proving genuine persistence and genuine isolation, not just that the code compiles.
+- [ ] Still not done: `sovereign`/`fdia`'s MEE growth uses the FDIA-score-based signal (matching Python ALGO-07's design, since these workers have no execution/verification step); `intent-loop`'s confidence-based signal remains richer but isolated to that one package. Reconciling these into one unified growth semantic (if desired at all) is a real design question, not an oversight. The Python `rct_control_plane`/`intent_compiler.py` side is still a separate runtime with its own `intent_precision` contract, unaddressed.
+
 ## Done (2026-09-12, part 5)
 
 - [x] **Tier 1 complete**: extended RCT-7 -> intent_precision synthesis to the standalone `fdia` worker (added `@delentia/mcp-rct7` as a new dependency; reordered root `build` so `rct7` builds before `fdia`). All 3 TS deployments that expose `evaluate_fdia` (`intent-loop`, `sovereign`, `fdia`) now support real RCT-7 synthesis identically. 6 new tests.
 - [x] **Tier 2 complete**: ported `mee_engine.py`'s real growth formula to TypeScript (`MEEGrowthTracker` in `packages/intent-loop`) — necessary because Cloudflare Workers cannot call the Python engine — verified byte-for-byte numerical parity against the actual Python module for an 8-step sequence. Wired `IntentLoopEngine` to step it using the `ConsensusVerifier`'s real post-execution confidence (not the FDIA score, which already has its own role), so growth now reflects "did what we produced hold up to independent scrutiny," not "did we understand the request going in." 9 new tests + a live re-run against real OpenRouter models (G: 1.0 -> 1.1 -> 1.21 across 2 real, unanimously-verified executions).
-- [ ] Still not done: the `rct7`/`delta`/`jitna` standalone workers (lower priority — they don't expose `evaluate_fdia` at all, nothing to synthesize into), the Python `rct_control_plane`/`intent_compiler.py` side (separate runtime, its own compatibility design needed), and extending `MEEGrowthTracker`'s confidence-driven growth signal to `sovereign`/`fdia` workers too (currently `intent-loop`-only, since those two workers don't run a multi-step orchestration loop with a memory layer to attach persistent growth state to in the first place — would need its own design, not a copy-paste).
 
 ## Done (2026-09-12, part 3)
 

@@ -18,11 +18,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import worker from "../packages/fdia/dist/worker.js";
+import worker, { MEEGrowthSessionDO } from "../packages/fdia/dist/worker.js";
+import { createFakeDurableObjectNamespace } from "./helpers/fake-durable-object.mjs";
 
 const FAKE_ENV = { ENVIRONMENT: "test" };
 
-async function callEvaluateFdia(args) {
+async function callEvaluateFdia(args, env = FAKE_ENV) {
   const request = new Request("http://worker.test/mcp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -33,7 +34,7 @@ async function callEvaluateFdia(args) {
       params: { name: "evaluate_fdia", arguments: args },
     }),
   });
-  const response = await worker.fetch(request, FAKE_ENV, { waitUntil: () => {} });
+  const response = await worker.fetch(request, env, { waitUntil: () => {} });
   const body = await response.json();
   return JSON.parse(body.result.content[0].text);
 }
@@ -88,4 +89,51 @@ test("fdia worker evaluate_fdia: no Durable Object binding present (fresh deploy
   // graceful-fallback code path around the audit-log Durable Object.
   const result = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" });
   assert.equal(result.verdict, "AUTHORIZED");
+});
+
+// ============================================================================
+// MEE growth via a real Durable Object (2026-09-13) — same real (not mocked)
+// fake-namespace harness as tests/sovereign_rct7_synthesis.test.mjs.
+// ============================================================================
+
+function envWithMee() {
+  return { ...FAKE_ENV, MEE_SESSION_DO: createFakeDurableObjectNamespace(MEEGrowthSessionDO) };
+}
+
+test("fdia worker evaluate_fdia: without a MEE_SESSION_DO binding, mee_growth is simply absent (graceful, backward compatible)", async () => {
+  const result = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" }, FAKE_ENV);
+  assert.equal(result.mee_growth, undefined);
+});
+
+test("fdia worker evaluate_fdia: with a real MEE_SESSION_DO binding, a real growth step is returned and reflects this call's own future_score", async () => {
+  const env = envWithMee();
+  const result = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" }, env);
+  assert.ok(result.mee_growth);
+  assert.equal(result.mee_growth.step.delta, result.future_score - 0.5);
+  assert.equal(result.mee_growth.step.governance_violation, false);
+  assert.equal(result.mee_growth.step.g_before, 1.0);
+});
+
+test("fdia worker evaluate_fdia: growth genuinely PERSISTS across calls to the same default session", async () => {
+  const env = envWithMee();
+  const first = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" }, env);
+  const second = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" }, env);
+  assert.equal(second.mee_growth.step.g_before, first.mee_growth.step.g_after);
+  assert.equal(second.mee_growth.summary.steps, 2);
+});
+
+test("fdia worker evaluate_fdia: a destructive action is a real governance_violation and genuinely degrades resilience", async () => {
+  const env = envWithMee();
+  const denied = await callEvaluateFdia({ data_quality: 0.9, action_name: "drop_production_table" }, env);
+  assert.equal(denied.authorized, false);
+  assert.equal(denied.mee_growth.step.governance_violation, true);
+  assert.equal(denied.mee_growth.step.resilience, 0.98);
+});
+
+test("fdia worker evaluate_fdia: a distinct session_id gets a genuinely ISOLATED growth trajectory from the shared default", async () => {
+  const env = envWithMee();
+  await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report" }, env);
+  const isolated = await callEvaluateFdia({ data_quality: 0.9, action_name: "read_report", session_id: "agent-alpha" }, env);
+  assert.equal(isolated.mee_growth.step.g_before, 1.0);
+  assert.equal(isolated.mee_growth.summary.steps, 1);
 });

@@ -4,6 +4,20 @@
   "main": "src/worker.ts",
   "compatibility_date": "2025-02-14",
   "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MEE_SESSION_DO",
+        "class_name": "MEEGrowthSessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["MEEGrowthSessionDO"]
+    }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
     "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP",

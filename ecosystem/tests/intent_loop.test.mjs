@@ -25,9 +25,11 @@ import {
   SecurityViolation,
   IntentLoopEngine,
   ROLE_MODEL_MAP,
-  MEEGrowthTracker,
-  confidenceToGrowthDelta,
 } from "../packages/intent-loop/dist/index.js";
+// MEEGrowthTracker/confidenceToGrowthDelta moved to @delentia/shared
+// 2026-09-13 so sovereign/fdia can share the exact same growth math via a
+// Durable Object instead of each reimplementing the formula.
+import { MEEGrowthTracker, confidenceToGrowthDelta } from "../packages/shared/dist/index.js";
 
 // ============================================================================
 // FDIA Gatekeeper — reuses the hardened shared engine

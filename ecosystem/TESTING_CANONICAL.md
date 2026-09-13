@@ -20,16 +20,18 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
 ## Test suite
 
-97 tests across 7 files, all passing as of 2026-09-12 (`npm run test:all`):
+107 tests across 7 files, all passing as of 2026-09-13 (`npm run test:all`):
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
 `tests/test_fdia_policy_engine.mjs` (14), `tests/fdia_deep_hypothesis.test.mjs`
 (24), `tests/intent_loop.test.mjs` (24 — deterministic, offline suite for the
 intent-loop package, using an injected fake `fetch` so CI never depends on a
 live network call or API key; includes the FDIA<->RCT-7 synthesis and MEE
 growth-tracker regression tests), `tests/sovereign_rct7_synthesis.test.mjs`
-(5) and `tests/fdia_worker_rct7_synthesis.test.mjs` (6) — both call their
-respective worker's real `fetch` handler directly, not a mock. A SEPARATE,
-non-CI script, `tests/intent_loop_live.test.mjs` (run via
+(10) and `tests/fdia_worker_rct7_synthesis.test.mjs` (11) — both call their
+respective worker's real `fetch` handler directly, not a mock, and (as of
+2026-09-13) also run the real `MEEGrowthSessionDO` Durable Object class
+against real in-memory storage via `tests/helpers/fake-durable-object.mjs`.
+A SEPARATE, non-CI script, `tests/intent_loop_live.test.mjs` (run via
 `npm run test:intent-loop:live` with `OPENROUTER_API_KEY` set), makes real
 calls to real OpenRouter free-tier models — see "Live intent-loop
 verification" below for its actual output. Includes explicit regression tests
@@ -259,9 +261,64 @@ still steps it, cache hit doesn't step it, gate rejection doesn't step it).
 **Known limitation, disclosed rather than hidden**: this confidence-driven
 growth signal exists only in `packages/intent-loop`. `sovereign` and `fdia`
 don't run a multi-step orchestration loop with a memory layer to attach
-persistent growth state to — extending this there would need its own
-design (e.g., a Durable-Object-backed growth session), not a copy-paste of
-this package's in-process approach.
+persistent growth state to — see the next section for how they got a
+different, complementary growth signal instead.
+
+## MEE growth given real persistent state via Cloudflare Durable Objects (2026-09-13)
+
+`MEEGrowthTracker`/`MEEStepRecord`/`confidenceToGrowthDelta` moved from
+`packages/intent-loop` into `@delentia/shared` (`packages/shared/src/mee-growth.ts`)
+— same anti-duplication reasoning already applied to FDIA itself: one
+canonical formula, not a third reimplementation. `packages/intent-loop`'s
+behavior is unchanged (imports it from `@delentia/shared` now; same 24
+tests still pass).
+
+**New: `MEEGrowthSessionDO`** (`packages/shared/src/mee-session-do.ts`), a
+real Cloudflare Durable Object giving MEE growth state genuine persistent
+storage, bound into both `sovereign` and `fdia` as `MEE_SESSION_DO`.
+Session scoping is a **deliberate, documented** decision: omitting
+`session_id` resolves to a shared `"default"` aggregate representing the
+deployment's overall growth trend (matching `mee_engine.py`'s original
+single-session design intent); passing an explicit `session_id` gets an
+isolated per-caller/per-agent trajectory instead. This was written
+specifically to avoid repeating the "one hardcoded global name for every
+caller" bug already documented above for the other 4 pillar workers'
+Durable Objects (the one with the real `configure_policy`-sharing security
+implication for `fdia`) — here the choice is explicit, not accidental, and
+carries no security consequence either way since growth is a read-mostly,
+additive metric, not an authorization decision.
+
+**Growth signal for `sovereign`/`fdia`**: these two workers have no
+execution or verification pipeline of their own (unlike `intent-loop`) —
+`evaluate_fdia` is a bare authorization gate. So the growth signal here is
+`delta = future_score - 0.5`, `governance_violation = !authorized` — the
+same design already used in `Delentia-OS/rct_control_plane/algorithm_kernel_41.py`'s
+ALGO-07 wiring for exactly this kind of gate-only signal. This is
+deliberately a *different* signal than `intent-loop`'s confidence-based one
+(that answers "did what we produced hold up to scrutiny"; this answers "how
+confidently is the gate authorizing over time") — not an inconsistency, two
+different deployment shapes with two different available signals.
+
+**Verified against the real DO class, not a mock**:
+`tests/helpers/fake-durable-object.mjs` runs the actual `MEEGrowthSessionDO`
+constructor and its actual `fetch()` handler, swapping out only the
+underlying `storage.get/put` persistence layer (Cloudflare's own
+infrastructure) for a plain in-memory `Map` — the only piece Wrangler
+itself would otherwise have to provide. 10 new tests in
+`tests/sovereign_rct7_synthesis.test.mjs` and 6 in
+`tests/fdia_worker_rct7_synthesis.test.mjs` prove, for real: growth
+persists across calls to the same session (`g_before` of call 2 equals
+`g_after` of call 1 — not reset per request); a distinct `session_id`
+starts fresh at G=1.0, fully isolated from the default session's state; an
+unauthorized result degrades resilience by exactly the documented 0.02
+penalty; and the whole feature is silently, gracefully absent when no
+`MEE_SESSION_DO` binding exists (backward compatible with every existing
+caller).
+
+**Known limitation, disclosed rather than hidden**: `sovereign`/`fdia`'s
+growth signal (FDIA-score-based) and `intent-loop`'s (confidence-based)
+are not unified into one semantic — reconciling them, if ever desired, is
+a real design question flagged in `ROADMAP.md`, not an oversight.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

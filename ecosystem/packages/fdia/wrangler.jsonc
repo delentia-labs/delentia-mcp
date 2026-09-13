@@ -9,6 +9,10 @@
       {
         "name": "FDIA_SESSION_DO",
         "class_name": "FDIASessionDO"
+      },
+      {
+        "name": "MEE_SESSION_DO",
+        "class_name": "MEEGrowthSessionDO"
       }
     ]
   },
@@ -16,6 +20,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["FDIASessionDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MEEGrowthSessionDO"]
     }
   ],
   "vars": {
