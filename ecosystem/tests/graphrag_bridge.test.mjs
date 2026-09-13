@@ -25,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { syncToGraphRag } from "../packages/intent-loop/dist/worker.js";
+import { syncToGraphRag, bridgeMetrics } from "../packages/intent-loop/dist/worker.js";
 import { searchGraphragDocuments } from "../packages/shared/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -166,4 +166,32 @@ test("syncToGraphRag: a trailing slash in GRAPHRAG_BASE_URL (an easy real miscon
   const session = await searchGraphragDocuments(GRAPHRAG_BASE_URL, uniqueMarker, "vector", 5);
   const found = session.results.find((r) => r.content.includes(uniqueMarker));
   assert.ok(found, "a document synced through a base URL with a trailing slash must still genuinely arrive in GraphRAG");
+});
+
+test("bridgeMetrics: real success/failure counters actually increment — the observability layer added to replace 6 silent catch{} blocks", { skip: !GRAPHRAG_AVAILABLE }, async (t) => {
+  const server = startGraphRagServer();
+  t.after(() => {
+    server.kill();
+  });
+  await waitForHealth(`${GRAPHRAG_BASE_URL}/health`);
+
+  const before = { ...bridgeMetrics.graphrag };
+
+  // A real successful sync.
+  await syncToGraphRag(
+    { GRAPHRAG_BASE_URL },
+    "metrics-test-session",
+    { intent: "metrics test" },
+    { intent_hash: "metrics-hash", state: "completed", output: { output: "metrics test output" }, latency_ms: 1, cache_hit: false, metadata: {} }
+  );
+  assert.equal(bridgeMetrics.graphrag.success, before.success + 1);
+
+  // A real failure: unreachable base URL.
+  await syncToGraphRag(
+    { GRAPHRAG_BASE_URL: "http://127.0.0.1:1" }, // port 1 - nothing real ever listens there
+    "metrics-test-session-2",
+    { intent: "metrics test failure" },
+    { intent_hash: "metrics-hash-2", state: "completed", output: { output: "y" }, latency_ms: 1, cache_hit: false, metadata: {} }
+  );
+  assert.equal(bridgeMetrics.graphrag.failure, before.failure + 1);
 });

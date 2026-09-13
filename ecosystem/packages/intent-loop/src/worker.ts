@@ -16,6 +16,30 @@ export { RCTDBLogSessionDO } from "@delentia/shared";
  * whether a completed run is worth a Halting Detection safety check. */
 const CODE_INTENT_RE = /\b(code|program|debug|function|bug|script)\b/i;
 
+/**
+ * Real, minimal observability for the 6 bridges (5 forward + 1 reverse):
+ * every one of them was previously a completely silent `catch {}` with no
+ * way to tell, from outside, whether syncs were succeeding or failing.
+ * Isolate-scoped, not durable — same disclosed limitation as
+ * IntentLoopEngine's own in-memory cache below (does NOT survive an
+ * isolate recycle or span multiple isolates). A real per-caller/global
+ * Durable-Object-backed counter would be the production-grade version of
+ * this; this is the honest, minimal first step, not a claim of full
+ * production observability.
+ */
+export type BridgeName = "graphrag" | "vectorSearch" | "haltingDetection" | "graphTraversal" | "moipPlanner" | "reverseRctdbQuery";
+export const bridgeMetrics: Record<BridgeName, { success: number; failure: number }> = {
+  graphrag: { success: 0, failure: 0 },
+  vectorSearch: { success: 0, failure: 0 },
+  haltingDetection: { success: 0, failure: 0 },
+  graphTraversal: { success: 0, failure: 0 },
+  moipPlanner: { success: 0, failure: 0 },
+  reverseRctdbQuery: { success: 0, failure: 0 },
+};
+function recordBridgeOutcome(name: BridgeName, ok: boolean): void {
+  bridgeMetrics[name][ok ? "success" : "failure"]++;
+}
+
 interface Env {
   OPENROUTER_API_KEY?: string;
   ENVIRONMENT?: string;
@@ -102,6 +126,9 @@ export async function logToRctdb(env: Env, sessionId: string, packet: IntentPack
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry),
     });
+    // logToRctdb predates the bridgeMetrics observability layer and has
+    // its own, older non-blocking contract — left unmetered rather than
+    // retrofitted, since it's not one of the 6 named bridges tracked.
   } catch {
     // Non-blocking — RCTDB logging must never break the actual response.
   }
@@ -127,9 +154,11 @@ export async function syncToGraphRag(env: Env, sessionId: string, packet: Intent
       fdia_score: result.fdia_score,
       cache_hit: result.cache_hit,
     });
+    recordBridgeOutcome("graphrag", true);
   } catch {
     // Non-blocking — same contract as logToRctdb: GraphRAG being
     // unreachable must never break the actual run_intent_loop response.
+    recordBridgeOutcome("graphrag", false);
   }
 }
 
@@ -154,8 +183,10 @@ export async function syncToVectorSearch(env: Env, sessionId: string, packet: In
       dimension,
       { source: "intent-loop", session_id: sessionId }
     );
+    recordBridgeOutcome("vectorSearch", true);
   } catch {
     // Non-blocking — same contract as syncToGraphRag.
+    recordBridgeOutcome("vectorSearch", false);
   }
 }
 
@@ -203,8 +234,10 @@ export async function checkGeneratedCodeHalts(env: Env, sessionId: string, packe
         { source: "intent-loop-halting-check", session_id: sessionId, halted: check.halted, completed: check.completed }
       );
     }
+    recordBridgeOutcome("haltingDetection", true);
   } catch {
     // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("haltingDetection", false);
   }
 }
 
@@ -234,8 +267,10 @@ export async function syncToGraphTraversal(env: Env, sessionId: string, packet: 
     await createGraphRelationship(env.GRAPH_TRAVERSAL_BASE_URL, intentNodeId, outcomeNodeId, "PRODUCED", {
       session_id: sessionId,
     });
+    recordBridgeOutcome("graphTraversal", true);
   } catch {
     // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("graphTraversal", false);
   }
 }
 
@@ -282,8 +317,10 @@ export async function analyzeIntentLoopTradeoffs(env: Env, sessionId: string, pa
         { source: "intent-loop-moip-analysis", session_id: sessionId, total_score: analysis.total_score }
       );
     }
+    recordBridgeOutcome("moipPlanner", true);
   } catch {
     // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("moipPlanner", false);
   }
 }
 
@@ -332,6 +369,15 @@ export default {
             halting_detection_bridge_configured: Boolean(env.HALTING_DETECTION_BASE_URL),
             graph_traversal_bridge_configured: Boolean(env.GRAPH_TRAVERSAL_BASE_URL),
             moip_planner_bridge_configured: Boolean(env.MOIP_PLANNER_BASE_URL),
+            reverse_bridge_configured: Boolean(env.BRIDGE_API_KEY),
+            // Real success/failure counts for every bridge call this
+            // isolate has made — isolate-scoped, NOT durable (resets on
+            // isolate recycle, does not aggregate across isolates). A
+            // real first step in observability where there was
+            // previously none (every bridge was a silent `catch {}`);
+            // not a claim of full production-grade metrics, which would
+            // need a Durable-Object-backed counter.
+            bridge_metrics: bridgeMetrics,
             transports: { streamable_http: "/mcp" },
             environment: env.ENVIRONMENT || "production",
             sentry_enabled: Boolean(env.SENTRY_DSN),
@@ -384,6 +430,7 @@ export default {
         }
         const providedKey = request.headers.get("x-bridge-api-key");
         if (providedKey !== env.BRIDGE_API_KEY) {
+          recordBridgeOutcome("reverseRctdbQuery", false);
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -397,6 +444,7 @@ export default {
         }
         const sessionId = url.searchParams.get("session_id");
         if (!sessionId) {
+          recordBridgeOutcome("reverseRctdbQuery", false);
           return new Response(JSON.stringify({ error: "session_id query parameter is required" }), {
             status: 400,
             headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -406,6 +454,7 @@ export default {
         const stub = env.RCTDB_LOG_DO.get(doId);
         const doResponse = await stub.fetch(`http://rctdb/all`);
         const entries = await doResponse.json();
+        recordBridgeOutcome("reverseRctdbQuery", true);
         return new Response(JSON.stringify({ session_id: sessionId, entries }), {
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });

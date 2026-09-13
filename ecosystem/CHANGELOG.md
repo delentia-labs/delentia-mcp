@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 10) — bridge observability: replacing 6 silent `catch {}` blocks with real counters
+
+### Added
+- `bridgeMetrics` (exported from `packages/intent-loop/src/worker.ts`) — real success/failure counters for all 6 bridges (5 forward: GraphRAG, Vector Search, Halting Detection, Graph Traversal, MOIP Planner; 1 reverse: `/rctdb/query`). Every bridge call was previously a completely silent `catch {}` with no way to tell from outside whether syncs were succeeding or failing at all. Exposed via the existing `GET /health` endpoint's response (`bridge_metrics` field), alongside the existing `*_bridge_configured` flags.
+- Honest limitation, disclosed in the code itself: these counters are isolate-scoped, not durable — they reset on Worker isolate recycle and do not aggregate across isolates, the same disclosed limitation `IntentLoopEngine`'s own in-memory cache already carries. A real production-grade version would need a Durable-Object-backed counter; this is the honest, minimal first step, not a claim of full observability.
+- New test in `tests/graphrag_bridge.test.mjs` proves the counters genuinely increment on a real success (against the live GraphRAG service) and a real failure (an unreachable base URL), not just that the field exists.
+
+146 tests total across 18 files, all passing (1 new), zero regressions.
+
 ## Unreleased (2026-09-13, part 9) — the FDIA contract test: a real, security-relevant divergence found between TS and Python
 
 ### Added
