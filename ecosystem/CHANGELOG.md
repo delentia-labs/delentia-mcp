@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 9) — the FDIA contract test: a real, security-relevant divergence found between TS and Python
+
+### Added
+- `tests/fdia_contract.test.mjs` — the contract test between `packages/shared/src/fdia-core.ts` (`FDIAEngine.calculateF`) and `Delentia-OS/rct_control_plane/algorithm_kernel_41.py` (`AlgorithmKernel41.algo_01_fdia`) flagged as a known missing gap since 2026-09-13. Both compute the same `F = D^I * A` equation independently; this shells out to real Python (not a re-derived formula) and compares against the real TS engine for the same inputs.
+
+### Found (not fixed — a real design decision, not a bug to silently resolve)
+- **TS and Python return opposite verdicts on extreme/out-of-domain inputs, and the divergence is security-relevant.** Python clamps `D` to `[0.01,100]` and `I` to `[0.01,10]` before computing; TS does not clamp at all. For `D=1000, I=1000, A=1.0`: TS computes `Math.pow(1000,1000)` (Infinity), fails its finite-check, and fails closed to `0` (denied) — the safe outcome for a nonsensical input. Python clamps down to `D=100, I=10` first, then computes `100**10 * 1.0 = 1e20` — a huge but perfectly finite float, returned as the real `future_score`. Since any realistic authorization threshold is O(1), a score of `1e20` would trivially clear it: **Python's clamping, intended as a safety measure, makes an absurd input MORE likely to be approved, while TS's unclamped-but-fail-closed approach denies the same input.**
+- **Corollary: Python's own log-based overflow guard is unreachable dead code.** `algo_01_fdia`'s `if I*log(D) > 700: return 1.0*A` can never fire given its own clamp bounds — the maximum possible `I*log(D)` once `D<=100` and `I<=10` are clamped is `10*ln(100)=46.05`, nowhere near 700. The same class of bug as Halting Detection's dead `except TimeoutError` clause found earlier this session: a safety branch that looks like it handles a real case but structurally never can.
+- A separate, smaller divergence: TS's finite/negative check covers `D` and `I` but not `A` itself, so a finite negative `A` produces a genuine negative `future_score`; Python clamps `A` into `[0,1]`, so the same negative `A` always yields `0`.
+
+Neither implementation was changed — picking a single correct behavior for extreme inputs (and applying it to both) is a real security-semantics decision for whoever owns FDIA, not something to decide unilaterally while writing a contract test. This test's job is to make the divergence visible and permanent (it will fail loudly if either side's behavior ever silently changes), not to resolve it.
+
+145 tests total across 18 files, all passing (3 new), zero regressions.
+
 ## Unreleased (2026-09-13, part 8) — the reverse bridge: Python can now call back into the TS kernel
 
 ### Added
