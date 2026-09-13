@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-13, part 2)
+
+- [x] **JITNA is now a real file format**, not just an in-memory object. `packages/shared/src/jitna-file.ts` adds `serializeJitnaPacket`/`parseJitnaPacket`/`writeJitnaFile`/`readJitnaFile`, an explicit `$jitna_format` marker resolving a real naming collision against 254 unrelated pre-existing `.jitna` files elsewhere in the repo (a different, YAML-ish agent-template format in `the private services repo`'s private-UI templates), and a SHA-256 checksum catching tampering/corruption. 8 new tests use real packets from the real `orchestrateSwarm()` tool and real disk I/O.
+- [ ] Not done: promoting this beyond a "save/load one packet" format — no compact binary encoding (Python's `jitna_protocol_v3.py` already has real TOON serialization + zlib/zstd compression that could be adapted here, but wasn't in this pass), no multi-packet container/streaming format, and the `M` (memory) field stays intentionally unconstrained (`z.record(z.unknown())`) since tightening it is a schema-design decision, not a file-format one.
+
 ## Done (2026-09-13)
 
 - [x] **MEE growth now has real persistent state**, via a new Cloudflare Durable Object (`MEEGrowthSessionDO`, in `@delentia/shared`) bound into both `sovereign` and `fdia`. `MEEGrowthTracker` moved from `packages/intent-loop` into `@delentia/shared` so all 3 TS deployments share one canonical implementation. Session scoping is explicit and documented (default = shared deployment-wide aggregate; explicit `session_id` = isolated per-caller trajectory) — a deliberate design choice made specifically to avoid the "one hardcoded global name for every caller" bug already flagged below for the other 4 pillar workers. 16 new tests (10 + 6) run the REAL DO class against real in-memory storage via a reusable fake-namespace harness, proving genuine persistence and genuine isolation, not just that the code compiles.

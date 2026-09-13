@@ -15,12 +15,14 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 | `configure_policy` | Real state mutation. Full-replace (not merge) semantics; no schema validation before reporting success in the `sovereign` worker (unresolved — tracked in `ROADMAP.md`). `sovereign` worker stores policy in-memory (isolate-scoped, eventually-consistent via optional KV write); the standalone `fdia` worker stores it in a Durable Object (more durable). | `packages/sovereign/src/worker.ts`, `packages/fdia/src/worker.ts` |
 | `rct_think` | **Real, deterministic heuristics across all 7 stages.** `verified_alignment_score` is computed from grounding completeness, problem specificity, and lexical overlap. Stages 1-6 now also compute real, input-dependent output: sentence splitting (Stage 1), context/problem lexical overlap (Stage 2), conjunction-based sub-task splitting (Stage 3), keyword-taxonomy failure detection (Stage 4), shared-vocabulary intent extraction (Stage 5), and a blueprint built from Stages 3+5 (Stage 6). Explicitly NOT semantic understanding (no LLM call) — see `docs/RCT7_SCORING_SPEC.md` for the full breakdown and documented limitations. | `packages/rct7/src/index.ts`, `docs/RCT7_SCORING_SPEC.md` |
 | `compress_context` | Real dedup + optional keyword filter; SHA-256 hash of real output. `reduction_percentage` is now the **real, unclamped computed value** — it can be negative on already-short/unique input or exceed the old 91.5% figure on highly repetitive input. The 74.2%-91.5% range was a specific benchmark result, not a guarantee, and is no longer enforced. | `packages/delta/src/index.ts` |
-| `orchestrate_swarm` | Real objective→pillar keyword routing and delta math. `assigned_pillars` now tags each pillar `role: "primary"` (the one actually routed to, with an objective-specific subtask) or `role: "support"` (standing role only, explicitly labeled as not engaged for this objective) — no longer 4 identical objective-specific claims. `expected_vram_switch_ms` remains a static per-pillar design target (no LoRA runtime exists in this codebase) but is now clearly documented as such. | `packages/jitna/src/index.ts`, `packages/shared/src/jitna-types.ts` |
+| `orchestrate_swarm` | Real objective→pillar keyword routing and delta math. `assigned_pillars` now tags each pillar `role: "primary"` (the one actually routed to, with an objective-specific subtask) or `role: "support"` (standing role only, explicitly labeled as not engaged for this objective) — no longer 4 identical objective-specific claims. `expected_vram_switch_ms` remains a static per-pillar design target (no LoRA runtime exists in this codebase) but is now clearly documented as such. **2026-09-13**: the JITNA packet it produces can now be saved/loaded as a real `.jitna` file — see "A real .jitna file format" below. | `packages/jitna/src/index.ts`, `packages/shared/src/jitna-types.ts`, `packages/shared/src/jitna-file.ts` |
 | `run_intent_loop` (new, 2026-09-12) | Real 5-stage pipeline consolidated from the most-developed of 4-5 diverged Python `loop_engine.py` copies found across the ecosystem. Gate reuses the hardened `evaluateFDIA`; memory is real Jaccard-similarity caching; **execute and verify now make real HTTP calls to real OpenRouter free-tier models** — replacing the Python original's two hardcoded-success stubs (`await sleep(0.1)` + fixed "Processed: {intent}" string; `votes = [True, True, True]` always-pass consensus). Verified against a live model end-to-end (see "Live intent-loop verification" below), not just unit-tested against a mock. **2026-09-12, later same day**: the gate's `intent_precision` (FDIA's `I`) is now synthesized from a real call to `executeRCT7()` instead of a standalone word-count heuristic — the first place anywhere in the ecosystem where RCT-7's actual decomposition output feeds FDIA's `I` parameter. See "RCT-7 → FDIA intent_precision synthesis" below. | `packages/intent-loop/src/index.ts` |
 
 ## Test suite
 
-107 tests across 7 files, all passing as of 2026-09-13 (`npm run test:all`):
+115 tests across 8 files, all passing as of 2026-09-13 (`npm run test:all`),
+including `tests/jitna_file_format.test.mjs` (8 — see "A real .jitna file
+format" below):
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
 `tests/test_fdia_policy_engine.mjs` (14), `tests/fdia_deep_hypothesis.test.mjs`
 (24), `tests/intent_loop.test.mjs` (24 — deterministic, offline suite for the
@@ -319,6 +321,54 @@ caller).
 growth signal (FDIA-score-based) and `intent-loop`'s (confidence-based)
 are not unified into one semantic — reconciling them, if ever desired, is
 a real design question flagged in `ROADMAP.md`, not an oversight.
+
+## A real `.jitna` file format (2026-09-13)
+
+Background: a dedicated research pass into JITNA this session found real
+serialization already existed in isolation (this repo's Zod
+`JITNAPacketSchema`; Python's `jitna_protocol.py`'s `to_dict()`/`to_json()`;
+`jitna_protocol_v3.py`'s real TOON text serializer plus real zlib/zstd
+compression with magic-byte detection, all with 75 real passing round-trip
+tests) — but no single FILE CONTAINER combining any of it existed, and
+nothing anywhere actually wrote a JITNA packet to disk as a file another
+agent could read back. The same research also found 254 pre-existing files
+already using the `.jitna` extension elsewhere in the repo
+(`the private services repo`'s private-UI intent-driven-UI agent templates) — a
+completely unrelated YAML-ish format (`intent`/`inputs`/`plan`/`output`
+keys), not this packet.
+
+**What was built**: `packages/shared/src/jitna-file.ts` —
+`serializeJitnaPacket()`/`parseJitnaPacket()` (string-level, works
+identically in Node or a Cloudflare Worker) and
+`writeJitnaFile()`/`readJitnaFile()` (real `node:fs/promises` disk I/O).
+The container is `{ $jitna_format: "packet/v1", created_at, checksum,
+packet }` — the `$jitna_format` marker resolves the naming collision (a
+reader immediately rejects the unrelated agent-template format with a
+specific, named error rather than misparsing it), and the SHA-256
+`checksum` (computed over the packet's canonical JSON) catches
+hand-editing or corruption after the file was written — a tampered field,
+even one that still satisfies the packet's own Zod schema bounds, is
+rejected with a specific "Checksum mismatch" error.
+
+**Verified real, not just wired**: 8 tests in
+`tests/jitna_file_format.test.mjs` use REAL packets produced by the real
+`orchestrateSwarm()` MCP tool (not hand-crafted fixtures) and REAL disk
+I/O — an actual temp file written by one call and read back by a
+genuinely separate call, proving actual "agent A writes, agent B reads"
+communication rather than an in-memory serialize/deserialize cycle in the
+same function. Also covers: a schema-invalid packet is rejected before
+anything is written to disk (no partial/corrupt file left behind), and two
+different real objectives produce two independently-round-tripping files
+with no cross-contamination.
+
+**Known limitation, disclosed rather than hidden**: this is a "save/load
+one packet" format, not a compact binary encoding or a multi-packet
+streaming container — Python's `jitna_protocol_v3.py` already has real
+TOON serialization and real zlib/zstd compression that could be adapted
+into this container in a later pass, but wasn't in this one. The `M`
+(memory) field stays intentionally unconstrained
+(`z.record(z.unknown())`) — tightening it is a schema-design decision
+independent of the file format itself.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

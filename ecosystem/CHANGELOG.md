@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (2026-09-13, part 2) — a real `.jitna` file format
+
+### Added
+- `packages/shared/src/jitna-file.ts` — a real, working `.jitna` file container format for the JITNA packet (I/D/delta/A/R/M), implementing the original design intent of JITNA as an actual inter-agent communication medium rather than just an in-memory object passed between calls in the same process. `serializeJitnaPacket()`/`parseJitnaPacket()` (string-level, Workers-compatible) and `writeJitnaFile()`/`readJitnaFile()` (real `node:fs/promises` disk I/O, Node-only).
+- The container carries an explicit `$jitna_format: "packet/v1"` marker plus a SHA-256 checksum of the packet. This resolves a real naming collision found during this session's JITNA research: 254 pre-existing, completely unrelated `.jitna` files already exist elsewhere in the repo tree (`the private services repo`'s private-UI intent-driven-UI agent templates — a YAML-ish `intent`/`inputs`/`plan`/`output` format, nothing to do with the I/D/delta/A/R/M packet). Rather than rename either format (both are live elsewhere), a reader can immediately and unambiguously tell them apart by content — `parseJitnaPacket()` throws a clear, specific error rather than silently misparsing one format as the other.
+- The checksum also catches hand-editing/corruption after a file is written — a tampered field (even one that still satisfies the packet's own Zod schema bounds) is rejected with a specific "Checksum mismatch" error, not silently trusted.
+- 8 new tests in `tests/jitna_file_format.test.mjs`, all using REAL packets produced by the real `orchestrateSwarm()` tool (not hand-crafted fixtures) and REAL disk I/O (an actual temp file written and read back each run) — proving genuine "agent A writes, agent B reads" round-trip communication, not just an in-memory serialize/deserialize cycle. Covers: real round trip, schema-invalid packets rejected before ever writing, the format-marker collision rejection, checksum tamper detection, malformed-JSON handling, real disk round trip, no-partial-file-on-validation-failure, and two independent objectives producing two non-cross-contaminating files.
+
+115 tests total across 8 files, all passing, zero regressions.
+
 ## Unreleased (2026-09-13) — MEE growth given real persistent state via Cloudflare Durable Objects
 
 ### Added
