@@ -24,10 +24,27 @@
  */
 
 import { createHash } from "node:crypto";
+import zlib from "node:zlib";
 import { JITNAPacketSchema, type JITNAPacket } from "./jitna-types.js";
+import { toonSerialize, toonDeserialize } from "./toon-format.js";
 
 /** Bumped only on a breaking change to the container's own shape (not the packet schema inside it). */
 export const JITNA_FILE_FORMAT_VERSION = "packet/v1";
+
+/**
+ * The compact variant, added 2026-09-13: instead of the packet's plain JSON,
+ * the payload is TOON-serialized (this repo's port of
+ * Delentia-OS/rct_control_plane/toon_formatter.py, verified byte-for-byte
+ * cross-language compatible with the real Python implementation) then
+ * zlib-deflated (Node's zlib.deflateSync/inflateSync produce the exact same
+ * RFC 1950 zlib format as Python's zlib.compress/decompress — verified by
+ * actually compressing with one language and decompressing with the other,
+ * both directions, not assumed). Only the OUTER container stays plain JSON
+ * (it's tiny — just the format marker, timestamp, and checksum); the packet
+ * payload itself is what gets compacted, since that's the part whose size
+ * actually matters when many packets accumulate.
+ */
+export const JITNA_FILE_FORMAT_VERSION_COMPACT = "packet/v2-toon-zlib";
 
 export interface JitnaFileContainer {
   /** Distinguishes this format from the unrelated pre-existing .jitna agent-template files elsewhere in the repo. */
@@ -126,4 +143,111 @@ export async function readJitnaFile(path: string): Promise<JITNAPacket> {
   const { readFile } = await import("node:fs/promises");
   const content = await readFile(path, "utf-8");
   return parseJitnaPacket(content);
+}
+
+// ============================================================================
+// Compact variant: TOON + zlib
+// ============================================================================
+
+export interface JitnaFileContainerCompact {
+  $jitna_format: typeof JITNA_FILE_FORMAT_VERSION_COMPACT;
+  created_at: string;
+  /** SHA-256 of the canonical JSON of the packet (computed before compression) — same tamper-detection guarantee as the v1 format. */
+  checksum: string;
+  /** base64(zlib.deflate(toonSerialize(packet))) */
+  compressed_toon_base64: string;
+}
+
+/** Serializes a JITNA packet into the compact TOON+zlib `.jitna` file format. Real, measured smaller output for typical packets — see jitnaCompactSizeComparison() to measure a specific packet. */
+export function serializeJitnaPacketCompact(packet: JITNAPacket): string {
+  const validated = JITNAPacketSchema.parse(packet);
+  const checksum = createHash("sha256").update(canonicalJson(validated)).digest("hex");
+  const toon = toonSerialize(validated);
+  const compressed = zlib.deflateSync(Buffer.from(toon, "utf-8"), { level: 6 });
+
+  const container: JitnaFileContainerCompact = {
+    $jitna_format: JITNA_FILE_FORMAT_VERSION_COMPACT,
+    created_at: new Date().toISOString(),
+    checksum,
+    compressed_toon_base64: compressed.toString("base64"),
+  };
+  return JSON.stringify(container);
+}
+
+/** Parses compact TOON+zlib `.jitna` file contents back into a validated JITNA packet. Same tamper/format-collision/schema-validation guarantees as parseJitnaPacket(). */
+export function parseJitnaPacketCompact(content: string): JITNAPacket {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch (err) {
+    throw new JitnaFileFormatError(`Not valid JSON: ${(err as Error).message}`);
+  }
+  if (typeof raw !== "object" || raw === null) {
+    throw new JitnaFileFormatError("File content is not a JSON object");
+  }
+  const container = raw as Partial<JitnaFileContainerCompact>;
+
+  if (container.$jitna_format !== JITNA_FILE_FORMAT_VERSION_COMPACT) {
+    throw new JitnaFileFormatError(
+      `Not a recognized compact JITNA packet file (found $jitna_format=${JSON.stringify(container.$jitna_format)}, expected ${JSON.stringify(
+        JITNA_FILE_FORMAT_VERSION_COMPACT
+      )}).`
+    );
+  }
+  if (!container.compressed_toon_base64) {
+    throw new JitnaFileFormatError("Missing `compressed_toon_base64` field");
+  }
+
+  let toon: string;
+  try {
+    const compressed = Buffer.from(container.compressed_toon_base64, "base64");
+    toon = zlib.inflateSync(compressed).toString("utf-8");
+  } catch (err) {
+    throw new JitnaFileFormatError(`Failed to decompress payload: ${(err as Error).message}`);
+  }
+
+  const decoded = toonDeserialize(toon);
+  const parseResult = JITNAPacketSchema.safeParse(decoded);
+  if (!parseResult.success) {
+    throw new JitnaFileFormatError(`Decompressed packet failed schema validation: ${parseResult.error.message}`);
+  }
+
+  const expectedChecksum = createHash("sha256").update(canonicalJson(parseResult.data)).digest("hex");
+  if (container.checksum !== expectedChecksum) {
+    throw new JitnaFileFormatError(
+      `Checksum mismatch — file contents were altered after being written (expected ${expectedChecksum}, got ${container.checksum})`
+    );
+  }
+
+  return parseResult.data;
+}
+
+/** Writes a JITNA packet to a real compact `.jitna` file on disk (TOON+zlib). Node-only — see writeJitnaFile(). */
+export async function writeJitnaFileCompact(path: string, packet: JITNAPacket): Promise<void> {
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(path, serializeJitnaPacketCompact(packet), "utf-8");
+}
+
+/** Reads and parses a real compact `.jitna` file (TOON+zlib) from disk. Node-only — see writeJitnaFileCompact(). */
+export async function readJitnaFileCompact(path: string): Promise<JITNAPacket> {
+  const { readFile } = await import("node:fs/promises");
+  const content = await readFile(path, "utf-8");
+  return parseJitnaPacketCompact(content);
+}
+
+export interface JitnaCompactSizeComparison {
+  json_bytes: number;
+  compact_bytes: number;
+  reduction_percentage: number;
+}
+
+/** Measures the REAL size difference between the plain JSON (v1) and compact TOON+zlib (v2) formats for a specific packet — not a general claim, a per-packet measurement (small packets can compress worse due to zlib/base64 overhead, same honesty principle already applied to compress_context's reduction_percentage elsewhere in this ecosystem). */
+export function jitnaCompactSizeComparison(packet: JITNAPacket): JitnaCompactSizeComparison {
+  const jsonBytes = Buffer.byteLength(serializeJitnaPacket(packet), "utf-8");
+  const compactBytes = Buffer.byteLength(serializeJitnaPacketCompact(packet), "utf-8");
+  return {
+    json_bytes: jsonBytes,
+    compact_bytes: compactBytes,
+    reduction_percentage: Math.round(((jsonBytes - compactBytes) / jsonBytes) * 10000) / 100,
+  };
 }

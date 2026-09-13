@@ -23,6 +23,14 @@ import {
   readJitnaFile,
   JitnaFileFormatError,
   JITNA_FILE_FORMAT_VERSION,
+  serializeJitnaPacketCompact,
+  parseJitnaPacketCompact,
+  writeJitnaFileCompact,
+  readJitnaFileCompact,
+  jitnaCompactSizeComparison,
+  JITNA_FILE_FORMAT_VERSION_COMPACT,
+  toonSerialize,
+  toonDeserialize,
 } from "../packages/shared/dist/index.js";
 import { orchestrateSwarm } from "../packages/jitna/dist/index.js";
 
@@ -126,5 +134,137 @@ test("full realistic scenario: two different swarm objectives produce two differ
   } finally {
     await unlink(pathA).catch(() => {});
     await unlink(pathB).catch(() => {});
+  }
+});
+
+// ============================================================================
+// TOON serialization — this repo's TS port of
+// Delentia-OS/rct_control_plane/toon_formatter.py. Cross-language byte
+// compatibility (Node's TOON output identical to Python's, after
+// normalizing Python's Windows text-mode \r\n) was verified manually this
+// session, not re-verified here (would require invoking a Python
+// subprocess from a Node test, which is a heavier CI dependency than this
+// suite otherwise has) — these tests cover the TS side's own correctness.
+// ============================================================================
+
+test("toonSerialize/toonDeserialize: round trip on a realistic nested packet-shaped object, including Thai text, matches the documented format exactly", () => {
+  const data = {
+    packet_id: "test-123",
+    priority: 3,
+    payload: {
+      intent: "คำนวณภาษีเงินได้บุคคลธรรมดา",
+      income: 1000000,
+      active: true,
+      ratio: 3.14,
+      empty_obj: {},
+      empty_list: [],
+      tags: ["finance", "thai_tax"],
+      nested: { a: 1, b: { c: 2 } },
+    },
+  };
+  const toon = toonSerialize(data);
+  // Exact format match against the documented TOON spec (no braces/brackets/quotes, 2-space indent, "- " list prefix).
+  assert.equal(
+    toon,
+    [
+      "packet_id: test-123",
+      "priority: 3",
+      "payload:",
+      "  intent: คำนวณภาษีเงินได้บุคคลธรรมดา",
+      "  income: 1000000",
+      "  active: true",
+      "  ratio: 3.14",
+      "  empty_obj: {}",
+      "  empty_list: []",
+      "  tags:",
+      "    - finance",
+      "    - thai_tax",
+      "  nested:",
+      "    a: 1",
+      "    b:",
+      "      c: 2",
+    ].join("\n")
+  );
+  assert.deepEqual(toonDeserialize(toon), data);
+});
+
+test("toonSerialize: null/negative-number/newline-in-string edge cases round-trip correctly", () => {
+  const data = { a: null, b: -42, c: -3.5, d: "line1\nline2" };
+  const toon = toonSerialize(data);
+  assert.match(toon, /a: null/);
+  assert.match(toon, /b: -42/);
+  assert.match(toon, /c: -3\.5/);
+  assert.deepEqual(toonDeserialize(toon), data);
+});
+
+// ============================================================================
+// Compact `.jitna` format: TOON + zlib (2026-09-13)
+// ============================================================================
+
+test("serializeJitnaPacketCompact -> parseJitnaPacketCompact: real round trip on a packet from the real orchestrateSwarm() tool", () => {
+  const swarm = orchestrateSwarm({ objective: "provision a new GPU cluster in us-east-1", data_readiness: 60, target_pillar: "auto" });
+  const compact = serializeJitnaPacketCompact(swarm.jitna_packet);
+  const parsed = parseJitnaPacketCompact(compact);
+  assert.deepEqual(parsed, swarm.jitna_packet);
+
+  const container = JSON.parse(compact);
+  assert.equal(container.$jitna_format, JITNA_FILE_FORMAT_VERSION_COMPACT);
+  assert.notEqual(container.$jitna_format, JITNA_FILE_FORMAT_VERSION, "compact format must carry its own distinct marker, not collide with v1's");
+});
+
+test("jitnaCompactSizeComparison: HONEST, real measured size difference — small packets barely benefit (compression+base64 overhead), larger packets with richer M fields genuinely shrink", () => {
+  const small = orchestrateSwarm({ objective: "deploy service", data_readiness: 70, target_pillar: "auto" }).jitna_packet;
+  const smallComparison = jitnaCompactSizeComparison(small);
+  // Not asserting a specific percentage for the small case — the whole
+  // point is this is genuinely input-dependent, same honesty principle as
+  // compress_context's reduction_percentage elsewhere in this ecosystem.
+  assert.ok(typeof smallComparison.reduction_percentage === "number");
+
+  const large = {
+    I: "migrate_customer_database_to_new_schema_with_zero_downtime",
+    D: 65,
+    delta: 35,
+    A: "executor",
+    R: "Approved after capacity review; rollback plan documented; monitoring dashboards configured for the migration window.",
+    M: {
+      objective: "migrate the legacy customer database to the new schema with zero downtime",
+      steps: ["snapshot", "dual_write", "backfill", "verify", "cutover", "cleanup"],
+      owner: "platform-team",
+      region: "us-east-1",
+      estimated_duration_minutes: 240,
+      risk_notes: "Requires coordination with the billing service team since they share the customers table.",
+      approvals: [
+        { name: "alice", role: "DBA", approved: true },
+        { name: "bob", role: "SRE", approved: true },
+      ],
+    },
+  };
+  const largeComparison = jitnaCompactSizeComparison(large);
+  assert.ok(largeComparison.reduction_percentage > 20, `a realistic, richer packet must show a real, substantial reduction (got ${largeComparison.reduction_percentage}%)`);
+  assert.equal(largeComparison.json_bytes, Buffer.byteLength(serializeJitnaPacket(large), "utf-8"));
+});
+
+test("parseJitnaPacketCompact: rejects the plain v1 JSON format with a clear error (the two formats are not interchangeable)", () => {
+  const v1Content = serializeJitnaPacket({ I: "x", D: 50, delta: 50, A: "router", R: "note", M: {} });
+  assert.throws(() => parseJitnaPacketCompact(v1Content), JitnaFileFormatError);
+});
+
+test("parseJitnaPacketCompact: detects tampering via checksum mismatch, same guarantee as the v1 format", () => {
+  const packet = { I: "test_intent", D: 80, delta: 20, A: "guardian", R: "note", M: {} };
+  const compact = serializeJitnaPacketCompact(packet);
+  const container = JSON.parse(compact);
+  container.checksum = "0".repeat(64); // corrupt the checksum, leave the real compressed payload intact
+  assert.throws(() => parseJitnaPacketCompact(JSON.stringify(container)), JitnaFileFormatError, /Checksum mismatch/);
+});
+
+test("writeJitnaFileCompact / readJitnaFileCompact: REAL disk round trip", async () => {
+  const packet = { I: "provision_gpu_cluster", D: 90, delta: 10, A: "executor", R: "note", M: { region: "us-east-1" } };
+  const filePath = tempJitnaPath();
+  try {
+    await writeJitnaFileCompact(filePath, packet);
+    const readBack = await readJitnaFileCompact(filePath);
+    assert.deepEqual(readBack, packet);
+  } finally {
+    await unlink(filePath).catch(() => {});
   }
 });

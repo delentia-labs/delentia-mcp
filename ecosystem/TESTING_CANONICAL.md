@@ -20,9 +20,10 @@ pattern already used in `Delentia-OS/docs/testing/TESTING_CANONICAL.md`.
 
 ## Test suite
 
-129 tests across 10 files, all passing as of 2026-09-13 (`npm run test:all`),
-including `tests/jitna_file_format.test.mjs` (8 — see "A real .jitna file
-format" below), `tests/rctdb_log.test.mjs` (10) and
+136 tests across 10 files, all passing as of 2026-09-13 (`npm run test:all`),
+including `tests/jitna_file_format.test.mjs` (now 15 — 8 original + 7 for
+the new TOON serializer and compact TOON+zlib `.jitna` variant, see "A
+real `.jitna` file format" below), `tests/rctdb_log.test.mjs` (10) and
 `tests/intent_loop_rctdb_wiring.test.mjs` (4) — see "RCTDB's 8-dimension
 schema" below:
 `tests/ecosystem.test.mjs` (9), `tests/deep-ecosystem.test.mjs` (15),
@@ -425,14 +426,30 @@ anything is written to disk (no partial/corrupt file left behind), and two
 different real objectives produce two independently-round-tripping files
 with no cross-contamination.
 
-**Known limitation, disclosed rather than hidden**: this is a "save/load
-one packet" format, not a compact binary encoding or a multi-packet
-streaming container — Python's `jitna_protocol_v3.py` already has real
-TOON serialization and real zlib/zstd compression that could be adapted
-into this container in a later pass, but wasn't in this one. The `M`
-(memory) field stays intentionally unconstrained
-(`z.record(z.unknown())`) — tightening it is a schema-design decision
-independent of the file format itself.
+**Update, 2026-09-13 — the compact TOON+zlib variant is now built**:
+`packages/shared/src/toon-format.ts` ports `toon_formatter.py`'s real
+serializer line-for-line (same indentation/list/scalar rules), and
+`jitna-file.ts` gained `serializeJitnaPacketCompact`/`parseJitnaPacketCompact`/
+`writeJitnaFileCompact`/`readJitnaFileCompact` under a distinct
+`$jitna_format: "packet/v2-toon-zlib"` marker (never confused with v1's
+plain-JSON marker). **Cross-language compatibility was verified
+empirically, not assumed**: the same nested/Thai-text object was
+serialized in both TS and Python and the output files diffed byte-for-byte
+identical (after normalizing Python's Windows text-mode `\r\n`, a test
+artifact, not an algorithm difference); zlib compression was verified both
+directions too — Node's `zlib.deflateSync` output decompressed
+successfully by Python's `zlib.decompress`, and Python's `zlib.compress`
+output decompressed successfully by Node's `zlib.inflateSync`.
+`jitnaCompactSizeComparison()` gives a real, honest, per-packet
+measurement rather than a blanket claim (same principle as
+`compress_context`'s `reduction_percentage`): a small real
+`orchestrateSwarm()` packet showed only 1.12% reduction (compression +
+base64 overhead roughly cancels TOON's savings at that size), while a
+larger, more realistic packet with a richer `M` field shrank 36%. 7 new
+tests. The `M` field itself stays intentionally unconstrained — still a
+schema-design decision, independent of which file format wraps it. zstd
+(Python v3's preferred codec when available) is not ported — Node has no
+built-in zstd, only zlib, so this variant is zlib-only.
 
 ## Live intent-loop verification (2026-09-12, real OpenRouter free-tier models)
 

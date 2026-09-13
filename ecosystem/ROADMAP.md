@@ -8,6 +8,11 @@ repo is a fully independent codebase with no code path connecting it to
 either of those (see `TESTING_CANONICAL.md` for the verified per-tool status
 this roadmap is fixing).
 
+## Done (2026-09-13, part 4)
+
+- [x] **`.jitna` now has a compact TOON+zlib variant** (`packet/v2-toon-zlib`), porting `Delentia-OS/rct_control_plane/toon_formatter.py`'s real TOON serializer to TS and verifying byte-for-byte cross-language compatibility empirically (both TOON text and zlib compression, both directions between Node and Python). Real per-packet measurement (`jitnaCompactSizeComparison()`) rather than a blanket claim — small packets barely benefit, larger ones with richer `M` fields shrink substantially (36% measured on a realistic example).
+- [ ] Not done: zstd support (Python's v3 protocol prefers zstd when available, falling back to zlib — this port is zlib-only; Node has no built-in zstd, would need a native addon), and the compact format isn't yet the default anywhere (both v1 JSON and v2 compact coexist, caller's choice).
+
 ## Done (2026-09-13, part 3)
 
 - [x] **RCTDB's 8-dimension schema adopted (as a data model, not a separately-hosted service)** and folded into the same Durable Object pattern as `MEEGrowthSessionDO` — new `RCTDBLogSessionDO` + 4 `buildRctdbEntryFrom*` helpers, tested against real FDIA/Delta/JITNA output, wired into `intent-loop`'s worker for real production logging. See `TESTING_CANONICAL.md`'s "RCTDB's 8-dimension schema" section for the full recommendation this implements and why the separately-hosted-service design was explicitly rejected.
