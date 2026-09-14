@@ -9,6 +9,10 @@
       {
         "name": "RCTDB_LOG_DO",
         "class_name": "RCTDBLogSessionDO"
+      },
+      {
+        "name": "MEE_SESSION_DO",
+        "class_name": "MEEGrowthSessionDO"
       }
     ]
   },
@@ -16,6 +20,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["RCTDBLogSessionDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["MEEGrowthSessionDO"]
     }
   ],
   "vars": {

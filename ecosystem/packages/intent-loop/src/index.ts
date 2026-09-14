@@ -105,7 +105,25 @@ export interface IntentResult {
   rct7?: RCT7ExecutionResult;
   /** The real MEE growth step this run produced — present whenever execution was actually attempted (model call and/or verification ran), absent on a cache hit (no new evidence of quality) or a gate rejection (a pure security block, not an execution-quality signal). */
   mee_step?: MEEStepRecord;
+  /** The same growth step, ALSO recorded to a Durable-Object-persisted session (survives isolate recycling, unlike mee_step's in-memory `this.growth`) — present only when a `persistentStep` callback was supplied to process() and it succeeded. See ProcessOptions.persistentStep. */
+  mee_growth?: { step: unknown; summary: unknown };
   metadata: Record<string, unknown>;
+}
+
+/** Optional per-call hooks for process(). */
+export interface ProcessOptions {
+  /**
+   * Steps a Durable-Object-backed MEE growth session with the exact same
+   * (delta, governanceViolation) pair that was just fed to the in-memory
+   * `this.growth.step()` — the delta-derivation logic itself stays in this
+   * file (the one place it's tested), the caller (worker.ts) only decides
+   * *whether* persistence is available (i.e. whether MEE_SESSION_DO is
+   * bound) and *which* session to scope it to. Best-effort: a rejected
+   * promise or a callback that returns undefined simply omits mee_growth
+   * from the result, exactly like the sibling fdia/sovereign workers'
+   * stepMeeGrowth().
+   */
+  persistentStep?: (delta: number, governanceViolation: boolean) => Promise<{ step: unknown; summary: unknown } | undefined>;
 }
 
 export class SecurityViolation extends Error {}
@@ -583,7 +601,7 @@ export class IntentLoopEngine {
     this.committer = new EvolutionCommitter(this.memory);
   }
 
-  async process(packet: IntentPacket): Promise<IntentResult> {
+  async process(packet: IntentPacket, options?: ProcessOptions): Promise<IntentResult> {
     const start = Date.now();
     this.metrics.total_requests += 1;
     const intentHash = computeIntentHash(packet);
@@ -636,6 +654,7 @@ export class IntentLoopEngine {
       // verification ever ran) — still a real, non-zero step, and still
       // counts as a governance_violation so resilience genuinely degrades.
       const meeStep = this.growth.step(-1, true);
+      const meeGrowth = await options?.persistentStep?.(-1, true);
       return {
         intent_hash: intentHash,
         state: "failed",
@@ -645,6 +664,7 @@ export class IntentLoopEngine {
         fdia_score: fdiaScore,
         rct7: rct7Result,
         mee_step: meeStep,
+        ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
@@ -655,7 +675,9 @@ export class IntentLoopEngine {
     // post-execution multi-model consensus, not the pre-execution FDIA
     // score again. A failed consensus counts as a governance_violation
     // (resilience degrades), same semantics as mee_engine.py.
-    const meeStep = this.growth.step(confidenceToGrowthDelta(verification.confidence), !verification.passed);
+    const growthDelta = confidenceToGrowthDelta(verification.confidence);
+    const meeStep = this.growth.step(growthDelta, !verification.passed);
+    const meeGrowth = await options?.persistentStep?.(growthDelta, !verification.passed);
 
     if (!verification.passed) {
       this.metrics.verification_failures += 1;
@@ -669,6 +691,7 @@ export class IntentLoopEngine {
         fdia_score: fdiaScore,
         rct7: rct7Result,
         mee_step: meeStep,
+        ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
         metadata: { specialist_role: specialistResult.specialist_role },
       };
     }
@@ -687,6 +710,7 @@ export class IntentLoopEngine {
       fdia_score: fdiaScore,
       rct7: rct7Result,
       mee_step: meeStep,
+      ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
       metadata: { specialist_role: specialistResult.specialist_role },
     };
   }

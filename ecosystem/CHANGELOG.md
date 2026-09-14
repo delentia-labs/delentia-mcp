@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased (2026-09-14, part 11) — MEE growth persistence closed the one remaining gap: `intent-loop` now matches `fdia`/`sovereign`
+
+### Found
+- A user question ("didn't we already wire MEE/RCT-7 into the main pipeline?") prompted a re-audit that found the prior answer was half-right: RCT-7 genuinely was wired into `intent-loop` (via `FDIAGatekeeper.validate()`, since 2026-09-12), but MEE growth was NOT — `IntentLoopEngine`'s `this.growth` (a `MEEGrowthTracker`) was isolate-scoped only, unlike `packages/fdia` and `packages/sovereign`, which already had `MEE_SESSION_DO`-backed persistence. `intent-loop` was the one pillar worker missing it.
+
+### Added
+- `ProcessOptions.persistentStep` — an optional callback on `IntentLoopEngine.process()` (`packages/intent-loop/src/index.ts`), called with the exact same `(delta, governanceViolation)` pair already fed to the in-memory `this.growth.step()` at both of `process()`'s two growth-recording sites (model-error path, post-verification path). The delta-derivation logic itself stays in the one place it's tested — `persistentStep` only decides *whether* and *where* to also persist it.
+- `stepMeeGrowth()` in `packages/intent-loop/src/worker.ts` — same design as the identically-named functions already in `packages/fdia`/`packages/sovereign`'s workers (kept as a deliberate duplicate per those files' own comments: each worker's `Env` type differs, and the actual growth MATH lives in one shared place, `@delentia/shared`'s `MEEGrowthTracker`/`MEEGrowthSessionDO`, which all three call through). Best-effort: a missing `MEE_SESSION_DO` binding or a DO error never blocks the `run_intent_loop` response.
+- `MEE_SESSION_DO` binding added to `packages/intent-loop/wrangler.jsonc` (same `MEEGrowthSessionDO` class already deployed for `fdia`/`sovereign`), and `MEEGrowthSessionDO` re-exported from `packages/intent-loop/src/worker.ts`.
+- `IntentResult` gains an optional `mee_growth` field (parallel to the existing in-memory `mee_step`) — present only when a `persistentStep` callback was supplied and succeeded.
+- `tests/intent_loop_mee_persistence.test.mjs` — 5 new tests against `IntentLoopEngine.process()` directly (same deterministic `fetchImpl`-injection pattern as `tests/intent_loop.test.mjs`, since `worker.ts` has no fetch-injection point for its real OpenRouter calls): backward compatibility with no `persistentStep`, the caller-must-wrap-errors contract, a real `MEEGrowthSessionDO`-backed step, genuine persistence across two separate `process()` calls to the same session (the actual gap this closes), and genuine isolation between two different sessions.
+
+141 tests total across 19 files, all passing (5 new), zero regressions. Full `npm run build`/`typecheck` also clean across all 7 packages.
+
+### Also found and fixed this pass (Python side, `the private services repo`, not this repo)
+- `<private-service>/<private-api>/app/algorithm_status.py`'s `get_algorithm_summary()` hardcoded a literal `tests_passing: 866, tests_failed: 0` with no relationship to any real test run — and `build_dynamic_context()`, which injects this into every LLM system prompt across 6 call sites in `main.py` (the main chat stream, HexaCore consensus, Mirror Mode, Groq analysis, WebSocket fallback), surfaced it as fact to every real conversation with that system's assistant. Removed; see that repo's own git history for the fix.
+- Designated `algorithm_status.py`'s `ALGORITHM_REGISTRY` the single source of truth for algorithm status going forward, superseding the mutually-conflicting `reports/algorithm_reports/*41_ALGORITHMS*`/`*36_ALGORITHMS*` markdown documents (which disagree with each other on ALGO-ID numbering, e.g. ALGO-11 = "BBA→P→CF" in the Jan 2026 doc vs "Intent Parser" in the March 2026 doc) — see that repo's `reports/algorithm_reports/00_READ_THIS_FIRST_SSOT_2026_09_14.md`.
+- Documented the RCT-7 implementation landscape (4 files across both repos, only 2 actually live) — see this repo's `docs/RCT7_SCORING_SPEC.md`, new "implementation landscape" section.
+
 ## Unreleased (2026-09-13, part 10) — bridge observability: replacing 6 silent `catch {}` blocks with real counters
 
 ### Added

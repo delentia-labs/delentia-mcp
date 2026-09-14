@@ -99,3 +99,40 @@ All three new extraction functions (`extractSubtasks`, `detectFailureCategories`
 
 - 2026-09-11 — Initial spec (stage 7 score only). Replaces the previous hardcoded `verified_alignment_score = 1.0`.
 - 2026-09-11 — Stages 1-6 made data-driven (see table above). Replaces the previous fixed prose, including a hardcoded "3 critical failure paths" claim at Stage 4 that no longer reflects a fixed number.
+
+## The RCT-7 implementation landscape across the ecosystem (audited 2026-09-14)
+
+This TS implementation is not the only one. A 2026-09-14 grep audit across
+both repos found **four files touching RCT-7**, not one canonical
+implementation with ports — worth documenting precisely rather than
+leaving readers to assume there's a single source of truth:
+
+| # | File | Runtime | Status | Live? |
+|---|---|---|---|---|
+| 1 | `packages/rct7/src/index.ts` (this repo) | Cloudflare Workers (TS) | **Real** — deterministic heuristic per this spec, tested (159/159 TS tests pass as of 2026-09-14) | **Yes** — wired into `intent-loop`, `sovereign`, and the standalone `fdia` worker |
+| 2 | `the private services repo/<private>/microservices/<private-service>/<private-api>/app/core/rct7_bridge.py` | Python (FastAPI, L3 API) | **Real** — makes an actual OpenRouter LLM call (`deepseek/deepseek-chat-v3-0324`) per step when `<private-env>`/`<private-env>` is set, with an explicitly-labeled (not silently fabricated) heuristic fallback when no key is present | **Yes** — wired into L3's JITNA enrichment path via `enrich_jitna_with_rct7()` |
+| 3 | `the private services repo/core/kernel/rct7_kernel_integration.py` | Python | **Fake at its core** — 698 lines of real-looking dataclasses/enums ("Production-ready code" per its own docstring), but the actual validation step hardcodes `intent_match_score: 0.95` and `aligned: True` regardless of input | **No** — grepped the entire repo; nothing imports this file. Referenced only in `docs/kernel/RUNTIME_PROOF.md` |
+| 4 | `the private services repo/<private>/microservices/<private-service>/rct7_kernel_integration.py` | Python | Byte-for-byte identical to #3 (confirmed via `diff`) | **No** — same audit, referenced only in `KERNEL_RUNTIME_INDEX.md` |
+
+**Decision (2026-09-14): do not attempt to "unify" these into one codebase.**
+#1 and #2 are necessarily separate — a Cloudflare Worker and a Python
+FastAPI service don't share a runtime, the same reason
+`tests/fdia_contract.test.mjs` exists to catch behavioral drift between the
+TS and Python FDIA implementations rather than trying to merge them. #1 and
+#2 are each real, each tested, each genuinely wired into a live pipeline —
+that's an acceptable, disclosed duplication, not a defect.
+
+#3/#4 are a different matter: they are **dead code** (unimported anywhere
+in the live path) whose docstring claims "production-ready" status while
+its actual logic is a hardcoded stub, and the whitepaper
+(`Delentia-OS/whitepapers/01_foundation/RCT_ECOSYSTEM_WHITEPAPER_TH_2026.md`
+§4.1) points to this file as "the reference implementation" — meaning
+anyone following that pointer today lands on the least real of the four.
+**Flagged, not fixed in this pass**: recommend either (a) deleting both
+identical copies since nothing imports them, or (b) if kept for
+documentation/historical value, retitling the docstring away from
+"Production-ready" and adding the same explicit `simulated`-style
+disclosure already used for MCTR/RCT-Diffusion/TVRA-Video. Left as an
+explicit follow-up rather than deleted unilaterally in this pass, since
+tracing every doc/manifest that might still expect the file to exist
+(`RUNTIME_PROOF.md`, `KERNEL_RUNTIME_INDEX.md`) is separate, bounded work.

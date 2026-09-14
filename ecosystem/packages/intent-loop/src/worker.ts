@@ -9,7 +9,7 @@ import {
   createGraphRelationship,
   analyzeTradeoffs,
 } from "@delentia/shared";
-export { RCTDBLogSessionDO } from "@delentia/shared";
+export { RCTDBLogSessionDO, MEEGrowthSessionDO } from "@delentia/shared";
 
 /** Same code-role detection regex used for specialist routing in index.ts
  * — reused here (not imported, since index.ts doesn't export it) to decide
@@ -40,12 +40,53 @@ function recordBridgeOutcome(name: BridgeName, ok: boolean): void {
   bridgeMetrics[name][ok ? "success" : "failure"]++;
 }
 
+/**
+ * Steps the MEE growth Durable Object for `sessionId` — same design as
+ * packages/fdia/src/worker.ts's stepMeeGrowth and packages/sovereign's
+ * (kept as a duplicate function rather than a shared helper for the same
+ * reason those two are: each worker's Env type differs and this is
+ * genuinely tiny; the growth MATH lives in one place, @delentia/shared's
+ * MEEGrowthTracker, which all three call through the DO). Best-effort: a
+ * missing binding or DO error never blocks the run_intent_loop response —
+ * passed into IntentLoopEngine.process() as ProcessOptions.persistentStep.
+ */
+async function stepMeeGrowth(
+  env: Env,
+  sessionId: string,
+  delta: number,
+  governanceViolation: boolean
+): Promise<{ step: unknown; summary: unknown } | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  try {
+    const doId = env.MEE_SESSION_DO.idFromName(sessionId);
+    const stub = env.MEE_SESSION_DO.get(doId);
+    const resp = await stub.fetch("http://mee/step", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta, governance_violation: governanceViolation, session_id: sessionId }),
+    });
+    if (!resp.ok) return undefined;
+    return (await resp.json()) as { step: unknown; summary: unknown };
+  } catch {
+    return undefined;
+  }
+}
+
 interface Env {
   OPENROUTER_API_KEY?: string;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
   RCTDB_LOG_DO?: DurableObjectNamespace;
+  /** Durable-Object-backed MEE growth persistence — same class (MEEGrowthSessionDO,
+   * from @delentia/shared) already bound in packages/fdia and packages/sovereign.
+   * Until 2026-09-14 this was the one pillar worker where MEE growth (`mee_step`
+   * on IntentResult) was isolate-scoped only (via IntentLoopEngine's in-memory
+   * `this.growth`), unlike its siblings — see ProcessOptions.persistentStep in
+   * index.ts. Optional: when unset, behavior is unchanged (mee_step still
+   * present, mee_growth simply absent), same graceful-fallback contract as
+   * every other optional binding in this file. */
+  MEE_SESSION_DO?: DurableObjectNamespace;
   /** Shared secret required (via the x-bridge-api-key header) to call
    * GET /rctdb/query — the reverse direction of the bridge, letting a
    * Python service query this kernel's own RCTDB audit log over real
@@ -512,9 +553,13 @@ export default {
           };
 
           const engine = getEngine(env.OPENROUTER_API_KEY);
-          const result = await engine.process(packet);
-
           const rctdbSessionId = packet.session_id ?? "default";
+          const result = await engine.process(packet, {
+            persistentStep: env.MEE_SESSION_DO
+              ? (delta, governanceViolation) => stepMeeGrowth(env, rctdbSessionId, delta, governanceViolation)
+              : undefined,
+          });
+
           ctx.waitUntil(logToRctdb(env, rctdbSessionId, packet, result));
           ctx.waitUntil(syncToGraphRag(env, rctdbSessionId, packet, result));
           ctx.waitUntil(syncToVectorSearch(env, rctdbSessionId, packet, result));
