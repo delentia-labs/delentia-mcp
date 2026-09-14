@@ -111,8 +111,8 @@ leaving readers to assume there's a single source of truth:
 |---|---|---|---|---|
 | 1 | `packages/rct7/src/index.ts` (this repo) | Cloudflare Workers (TS) | **Real** — deterministic heuristic per this spec, tested (159/159 TS tests pass as of 2026-09-14) | **Yes** — wired into `intent-loop`, `sovereign`, and the standalone `fdia` worker |
 | 2 | `the private services repo/<private>/microservices/<private-service>/<private-api>/app/core/rct7_bridge.py` | Python (FastAPI, L3 API) | **Real** — makes an actual OpenRouter LLM call (`deepseek/deepseek-chat-v3-0324`) per step when `<private-env>`/`<private-env>` is set, with an explicitly-labeled (not silently fabricated) heuristic fallback when no key is present | **Yes** — wired into L3's JITNA enrichment path via `enrich_jitna_with_rct7()` |
-| 3 | `the private services repo/core/kernel/rct7_kernel_integration.py` | Python | **Fake at its core** — 698 lines of real-looking dataclasses/enums ("Production-ready code" per its own docstring), but the actual validation step hardcodes `intent_match_score: 0.95` and `aligned: True` regardless of input | **No** — grepped the entire repo; nothing imports this file. Referenced only in `docs/kernel/RUNTIME_PROOF.md` |
-| 4 | `the private services repo/<private>/microservices/<private-service>/rct7_kernel_integration.py` | Python | Byte-for-byte identical to #3 (confirmed via `diff`) | **No** — same audit, referenced only in `KERNEL_RUNTIME_INDEX.md` |
+| 3 | `the private services repo/core/kernel/rct7_kernel_integration.py` | Python | **Partially real, partially placeholder** (re-audited 2026-09-14 — see below) | **CORRECTED 2026-09-14: Yes** — `tests/conftest.py` adds `core/kernel` to `sys.path`, and `tests/integration/test_rct7_kernel_integration.py` genuinely imports and exercises it (33 real tests, passing) |
+| 4 | `the private services repo/<private>/microservices/<private-service>/rct7_kernel_integration.py` | Python | Byte-for-byte identical to #3 as of 2026-09-14's fixes | **No** — re-verified 2026-09-14, still genuinely unimported anywhere |
 
 **Decision (2026-09-14): do not attempt to "unify" these into one codebase.**
 #1 and #2 are necessarily separate — a Cloudflare Worker and a Python
@@ -122,17 +122,29 @@ TS and Python FDIA implementations rather than trying to merge them. #1 and
 #2 are each real, each tested, each genuinely wired into a live pipeline —
 that's an acceptable, disclosed duplication, not a defect.
 
-#3/#4 are a different matter: they are **dead code** (unimported anywhere
-in the live path) whose docstring claims "production-ready" status while
-its actual logic is a hardcoded stub, and the whitepaper
-(`Delentia-OS/whitepapers/01_foundation/RCT_ECOSYSTEM_WHITEPAPER_TH_2026.md`
-§4.1) points to this file as "the reference implementation" — meaning
-anyone following that pointer today lands on the least real of the four.
-**Flagged, not fixed in this pass**: recommend either (a) deleting both
-identical copies since nothing imports them, or (b) if kept for
-documentation/historical value, retitling the docstring away from
-"Production-ready" and adding the same explicit `simulated`-style
-disclosure already used for MCTR/RCT-Diffusion/TVRA-Video. Left as an
-explicit follow-up rather than deleted unilaterally in this pass, since
-tracing every doc/manifest that might still expect the file to exist
-(`RUNTIME_PROOF.md`, `KERNEL_RUNTIME_INDEX.md`) is separate, bounded work.
+**CORRECTION (2026-09-14, same day as the original entry above):** #3
+was first written up here as "dead code (unimported anywhere)" — that was
+**wrong**. A later re-check found `tests/integration/
+test_rct7_kernel_integration.py` genuinely imports and exercises it via
+`tests/conftest.py`'s `sys.path` manipulation (33 real tests, passing).
+The root cause of the miss: the grep used to find importers searched for
+the pattern `"import rct7_kernel_integration"` (module name AFTER
+"import"), which does not match the real consumer's actual statement,
+`"from rct7_kernel_integration import (...)"` (module name BEFORE
+"import") — a regex gap, not a real absence of importers. Re-auditing #3
+with fresh eyes: `step_1_observe()`/`step_6_reconstruct()` genuinely
+thread real input through; steps 2-5 build mostly empty or
+literal-placeholder structures regardless of input (e.g. step 5's
+`core_intent` is the fixed string `"Intent identified through analysis"`);
+`step_7_compare_with_intent()`'s validation and the Kernel-9-Tiers class's
+Tier 2/Tier 5 scores were hardcoded constants (now disclosed inline in
+the file, `execution_time_ms` fixed to a real measurement). Only #4 (the
+`<private>/microservices/<private-service>/` copy) is genuinely dead code —
+confirmed by the same corrected search. See `core/kernel/
+rct7_kernel_integration.py`'s own module docstring for the fullest,
+most current account of both the correction and what remains
+placeholder. Fully replacing steps 2-5's placeholder scaffolding and the
+remaining hardcoded scores with real reasoning is flagged as real
+follow-up scope (effectively a fourth RCT-7 implementation, given #1 and
+#2 above already exist) rather than attempted in this pass. Neither copy
+is deleted per the workspace's Immutable Zero-Delete Policy.
