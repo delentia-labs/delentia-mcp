@@ -2,7 +2,7 @@ import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, t
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
-import { orchestrateSwarm, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
+import { orchestrateSwarm, signJitnaPacket, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
 
 interface Env {
   ENVIRONMENT?: string;
@@ -15,6 +15,8 @@ interface Env {
   ZUPLO_SHARED_SECRET?: string;
   ENTERPRISE_API_KEYS?: string;
   MEE_SESSION_DO?: DurableObjectNamespace;
+  JITNA_SIGNING_PRIVATE_KEY_JWK?: string;
+  JITNA_SIGNING_PUBLIC_KEY_JWK?: string;
 }
 
 /**
@@ -515,8 +517,13 @@ export default {
             context_params: args.context_params,
           };
           const result = orchestrateSwarm(params);
+          // Real Ed25519 signature over the packet (Layer 1), added
+          // 2026-09-14 — see packages/jitna/src/index.ts's signJitnaPacket
+          // header comment for the crypto details and scope notes.
+          const signed_packet = await signJitnaPacket(result.jitna_packet, env);
           const outputResult = {
             ...result,
+            signed_packet,
             _meta: tierMeta,
           };
           return new Response(
@@ -776,8 +783,12 @@ export default {
                         jitna_packet: { type: "object", description: "Decomposed JITNA v3 execution packet (I, D, delta, A, R, M)." },
                         assigned_pillars: { type: "array", description: "Specialized pillar agent assignments with expected sub-tasks and switch latencies." },
                         swarm_strategy: { type: "string", description: "Dynamic switching execution strategy." },
+                        signed_packet: {
+                          type: "object",
+                          description: "Real Ed25519 signature (crypto.subtle, RFC 8032) over jitna_packet, plus a 64-char SHA-256 public-key fingerprint. `key_source` is 'configured_secret' when JITNA_SIGNING_PRIVATE_KEY_JWK/JITNA_SIGNING_PUBLIC_KEY_JWK env secrets are set (stable fingerprint across deploys), else 'ephemeral_isolate' (a fresh keypair generated and cached for this Worker isolate's lifetime only).",
+                        },
                       },
-                      required: ["objective", "jitna_packet", "assigned_pillars"],
+                      required: ["objective", "jitna_packet", "assigned_pillars", "signed_packet"],
                     },
                     annotations: {
                       audience: ["user", "assistant"],

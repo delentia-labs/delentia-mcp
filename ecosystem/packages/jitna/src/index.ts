@@ -5,6 +5,13 @@ import {
   type JITNAPacket,
   type LoRAPillarRole,
   LORA_PILLARS,
+  generateSigningKeypair,
+  importSigningKeypairFromJwk,
+  importPublicKeyFromJwk,
+  computeKeyFingerprint,
+  signPayload,
+  verifyPayloadSignature,
+  type Ed25519KeypairJwk,
 } from "@delentia/shared";
 
 export const OrchestrateSwarmInputSchema = z.object({
@@ -120,6 +127,109 @@ export function orchestrateSwarm(input: OrchestrateSwarmInput): SwarmOrchestrati
     swarm_strategy: `Routed to ${LORA_PILLARS[primaryPillar].displayName} as primary handler (1+4 pillar architecture; the other 3 pillars remain on standby for this objective). expected_vram_switch_ms values are design targets, not measurements — no LoRA runtime executes in this deployment.`,
     timestamp: new Date().toISOString(),
   };
+}
+
+// ============================================================================
+// Ed25519 packet signing (Layer 1: OS Primitives & Cryptographic Transport)
+//
+// Added 2026-09-14 — see packages/shared/src/ed25519.ts for the primitives
+// and their header comment for why this exists (the deployed Worker had
+// zero cryptography before this; the Python side's own attempt was a
+// documented "(mock)" SHA-256 prefix, not real asymmetric signing).
+//
+// orchestrateSwarm() itself is intentionally left pure/sync/unchanged
+// (existing callers, including this package's own test suite, keep
+// working unmodified) — signing is a separate wrapping step applied to
+// its output, exercised live by worker.ts's orchestrate_swarm tool
+// handler.
+// ============================================================================
+
+export interface SignedJITNAPacket {
+  packet: JITNAPacket;
+  signature: string;
+  public_key_fingerprint: string;
+  algorithm: "Ed25519";
+  signed_at: string;
+  /** "configured_secret" = a stable keypair loaded from env secrets,
+   *  persists across deploys and isolates. "ephemeral_isolate" = no
+   *  secret was configured, so a fresh keypair was generated and cached
+   *  for the lifetime of this Worker isolate only — real Ed25519
+   *  signing either way, but the fingerprint is not a durable network
+   *  identity in the ephemeral case. Disclosed rather than silently
+   *  implied to be stable. */
+  key_source: "configured_secret" | "ephemeral_isolate";
+}
+
+interface JitnaSigningEnv {
+  JITNA_SIGNING_PRIVATE_KEY_JWK?: string;
+  JITNA_SIGNING_PUBLIC_KEY_JWK?: string;
+}
+
+let _cachedKeypair: { privateKey: CryptoKey; publicKey: CryptoKey; keySource: SignedJITNAPacket["key_source"] } | undefined;
+
+/**
+ * Loads a configured signing keypair from env secrets if present (stable
+ * across deploys/isolates); otherwise generates a real Ed25519 keypair
+ * once and caches it at module scope for this isolate's lifetime — the
+ * same warm-isolate-caching pattern worker.ts already uses for
+ * `activePolicy`/`freeUsageCache`.
+ */
+export async function getOrCreateJitnaSigningKeypair(
+  env?: JitnaSigningEnv
+): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey; keySource: SignedJITNAPacket["key_source"] }> {
+  if (env?.JITNA_SIGNING_PRIVATE_KEY_JWK && env?.JITNA_SIGNING_PUBLIC_KEY_JWK) {
+    try {
+      const jwk: Ed25519KeypairJwk = {
+        privateKeyJwk: JSON.parse(env.JITNA_SIGNING_PRIVATE_KEY_JWK),
+        publicKeyJwk: JSON.parse(env.JITNA_SIGNING_PUBLIC_KEY_JWK),
+      };
+      const { privateKey, publicKey } = await importSigningKeypairFromJwk(jwk);
+      return { privateKey, publicKey, keySource: "configured_secret" };
+    } catch {
+      // Fall through to ephemeral generation on malformed secrets rather
+      // than crash packet signing entirely.
+    }
+  }
+
+  if (_cachedKeypair) return _cachedKeypair;
+  const { privateKey, publicKey } = await generateSigningKeypair();
+  _cachedKeypair = { privateKey, publicKey, keySource: "ephemeral_isolate" };
+  return _cachedKeypair;
+}
+
+/** Sign a JITNA packet with a real Ed25519 signature over its canonical
+ *  form. Every packet the live Worker emits is signed this way. */
+export async function signJitnaPacket(packet: JITNAPacket, env?: JitnaSigningEnv): Promise<SignedJITNAPacket> {
+  const { privateKey, publicKey, keySource } = await getOrCreateJitnaSigningKeypair(env);
+  const [signature, public_key_fingerprint] = await Promise.all([
+    signPayload(privateKey, packet),
+    computeKeyFingerprint(publicKey),
+  ]);
+  return {
+    packet,
+    signature,
+    public_key_fingerprint,
+    algorithm: "Ed25519",
+    signed_at: new Date().toISOString(),
+    key_source: keySource,
+  };
+}
+
+/**
+ * Verify a signed JITNA packet against a known public key JWK. Real
+ * verification (crypto.subtle.verify) — a tampered packet or a wrong/
+ * mismatched public key returns false, never a silent pass.
+ *
+ * No live endpoint in this Worker currently ingests externally-submitted
+ * signed packets (orchestrate_swarm only produces them), so there is
+ * nothing in the deployed request path to enforce rejection on yet —
+ * this function is real and tested (see ed25519_signing.test.mjs) and
+ * ready for a future packet-ingestion endpoint to call, rather than a
+ * decorative stub.
+ */
+export async function verifyJitnaPacket(signed: SignedJITNAPacket, publicKeyJwk: JsonWebKey): Promise<boolean> {
+  const publicKey = await importPublicKeyFromJwk(publicKeyJwk);
+  return verifyPayloadSignature(publicKey, signed.packet, signed.signature);
 }
 
 export function createJITNAMcpServer() {
