@@ -14,3 +14,4 @@ export * from "./vector-search-client.js";
 export * from "./halting-detection-client.js";
 export * from "./graph-traversal-client.js";
 export * from "./moip-client.js";
+export * from "./cord-security.js";

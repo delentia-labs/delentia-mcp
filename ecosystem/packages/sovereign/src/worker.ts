@@ -1,4 +1,4 @@
-import { evaluateFDIA, FDIAEngine, validatePolicy, type ArchitectCustomPolicy } from "@delentia/shared";
+import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, type ArchitectCustomPolicy } from "@delentia/shared";
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
@@ -274,6 +274,38 @@ export default {
               portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
               pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
             };
+          }
+
+          // ==========================================
+          // CORD Shannon Entropy & Injection Scanner (Layer 2)
+          // Ported 2026-09-14 from Delentia-OS/rct_control_plane/
+          // cord_security.py — that module was real, tested logic that
+          // never protected any deployed system. Runs before any of the
+          // 5 tools execute, blocking obfuscated/injection payloads
+          // before an LLM (or any tool logic) ever sees them, matching
+          // the architecture doc's Layer 2 claim. Scans every string
+          // value anywhere in the tool arguments, since argument shape
+          // varies per tool.
+          // ==========================================
+          const cordArgs = body.params?.arguments || body.params || body;
+          const cordText = extractCordText(cordArgs);
+          const cordResult = await cordCheck(cordText);
+          if (cordResult.verdict === "rejected") {
+            const hardFindings = cordResult.findings.filter((f) => f.severity === "hard");
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? null,
+                error: {
+                  code: -32003,
+                  message:
+                    "Input rejected by CORD (Constitutional Oversight & Rejection Detector): " +
+                    hardFindings.map((f) => f.detail).join("; "),
+                  data: { cord: cordResult },
+                },
+              }),
+              { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
           }
         }
 
