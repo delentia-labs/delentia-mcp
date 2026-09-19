@@ -13,6 +13,7 @@ import {
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
 export { FDIASessionDO } from "./session-do.js";
+import { callPythonKernelFdia } from "./pythonKernelBridge.js";
 
 interface Env {
   FDIA_SESSION_DO: DurableObjectNamespace;
@@ -27,6 +28,13 @@ interface Env {
   POLICY_KV?: WorkersPolicyKV;
   FDIA_POLICY_RULES_JSON?: string;
   FDIA_POLICY_JSON?: string;
+  // Round 31: real, optional HTTP bridge to Delentia-OS's Python kernel
+  // (rct_control_plane's `POST /v1/kernel/fdia/evaluate`). Unset by
+  // default - this worker's own native evaluateFDIA computation stays
+  // the real, authoritative result either way (Zero-Delete); when set,
+  // a real cross-check is ALSO run and attached as
+  // `python_kernel_cross_check`, best-effort, never blocking.
+  PYTHON_KERNEL_URL?: string;
 }
 
 /**
@@ -397,6 +405,18 @@ export default {
 
           const evaluated = evaluateFDIA(params);
 
+          // Round 31: real, best-effort cross-check against Delentia-OS's
+          // Python kernel (see pythonKernelBridge.ts's own docstring for
+          // the full rationale - this is a prototype proving the two
+          // systems CAN talk to each other, not a replacement for the
+          // real evaluateFDIA computation above, which is unconditionally
+          // authoritative regardless of whether this succeeds).
+          const pythonCrossCheck = await callPythonKernelFdia(env.PYTHON_KERNEL_URL, {
+            data_quality: params.data_quality,
+            intent_precision: intentPrecision,
+            authorized: params.authorized,
+          });
+
           // Real, persistent MEE growth step (Durable-Object-backed) — same
           // design as packages/sovereign: delta = future_score - 0.5,
           // governance_violation = !authorized (this worker has no
@@ -412,6 +432,7 @@ export default {
             ...evaluated,
             ...(rct7Trail ? { rct7_synthesis: { verified_alignment_score: rct7Trail.verified_alignment_score, derived_intent_precision: intentPrecision } } : {}),
             ...(meeGrowth ? { mee_growth: meeGrowth } : {}),
+            ...(pythonCrossCheck ? { python_kernel_cross_check: pythonCrossCheck } : {}),
           };
 
           // Asynchronously record audit log in Durable Object
