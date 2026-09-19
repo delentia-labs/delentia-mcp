@@ -29,5 +29,11 @@
   "vars": {
     "ENVIRONMENT": "production",
     "SERVER_NAME": "Delentia FDIA Security MCP"
+    // Round 32 (prep only, not wired live): once a real, publicly-
+    // reachable Delentia-OS Python kernel API exists (see
+    // Delentia-OS/DEPLOYMENT.md), add:
+    // "PYTHON_KERNEL_URL": "https://<your-real-host>"
+    // and run `npx wrangler deploy` to activate pythonKernelBridge.ts's
+    // cross-check in the real evaluate_fdia handler.
   }
 }
