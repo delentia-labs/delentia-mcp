@@ -1,5 +1,5 @@
 import { orchestrateSwarm, type OrchestrateSwarmInput } from "./index.js";
-import { captureException } from "@delentia/shared";
+import { captureException, resolveSessionDOName } from "@delentia/shared";
 export { JITNASessionDO } from "./session-do.js";
 
 interface Env {
@@ -166,7 +166,13 @@ export default {
           const result = orchestrateSwarm(params);
 
           try {
-            const doId = env.JITNA_SESSION_DO.idFromName("global_jitna_session");
+            // Real fix (ROADMAP.md "Now — Remaining integrity fixes"):
+            // dispatch records previously accumulated across ALL callers
+            // globally with no opt-out. An explicit session_id now
+            // genuinely isolates this caller's dispatch record; omitting
+            // it preserves the exact prior shared-default behavior.
+            const jitnaSessionId = resolveSessionDOName(args, "global_jitna_session");
+            const doId = env.JITNA_SESSION_DO.idFromName(jitnaSessionId);
             const doStub = env.JITNA_SESSION_DO.get(doId);
             ctx.waitUntil(
               doStub.fetch("http://do/dispatch", {

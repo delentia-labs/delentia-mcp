@@ -9,6 +9,7 @@ import {
   generateGitHubOAuthUrl,
   createSessionToken,
   verifySessionToken,
+  resolveSessionDOName,
 } from "@delentia/shared";
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
@@ -195,8 +196,16 @@ export default {
       }
 
       // 3. Enterprise Custom Policy Management
+      // Real fix (ROADMAP.md "Now — Remaining integrity fixes"): an
+      // optional ?session_id= query param now genuinely isolates this
+      // caller's DO instance; omitting it preserves the exact prior
+      // shared-default behavior (backward compatible, opt-in only).
       if (url.pathname === "/policy") {
-        const doId = env.FDIA_SESSION_DO.idFromName("global_audit_session");
+        const policySessionId = resolveSessionDOName(
+          { session_id: url.searchParams.get("session_id") },
+          "global_audit_session"
+        );
+        const doId = env.FDIA_SESSION_DO.idFromName(policySessionId);
         const doStub = env.FDIA_SESSION_DO.get(doId);
         return doStub.fetch(request);
       }
@@ -315,7 +324,13 @@ export default {
           }
           const validatedPolicy = validation.policy;
 
-          const doId = env.FDIA_SESSION_DO.idFromName("global_audit_session");
+          // Same real opt-in isolation as evaluate_fdia below: a caller
+          // who passes session_id here now writes to their OWN DO
+          // instance instead of the globally-shared one, so their policy
+          // change can no longer silently affect other callers who don't
+          // pass a matching session_id.
+          const configureSessionId = resolveSessionDOName(policyData, "global_audit_session");
+          const doId = env.FDIA_SESSION_DO.idFromName(configureSessionId);
           const doStub = env.FDIA_SESSION_DO.get(doId);
 
           const doResp = await doStub.fetch("http://do/policy", {
@@ -351,11 +366,20 @@ export default {
         if (body.method === "tools/call" || body.tool === "evaluate_fdia" || body.action_name) {
           const args = body.params?.arguments || body.params || body;
 
+          // Real fix (ROADMAP.md "Now — Remaining integrity fixes"): this
+          // was the severe half of the cross-tenant leak — every caller
+          // who omitted custom_policy read back whatever the LAST caller
+          // wrote via configure_policy, globally. A caller who now passes
+          // the SAME session_id to both configure_policy and evaluate_fdia
+          // gets a genuinely isolated policy; omitting it on both sides
+          // preserves the exact prior shared-default behavior.
+          const fdiaSessionId = resolveSessionDOName(args, "global_audit_session");
+
           // Pull active policy from args, Durable Object, or Cloudflare KV / Bundled
           let activePolicy: ArchitectCustomPolicy | undefined = args.custom_policy;
           if (!activePolicy) {
             try {
-              const doId = env.FDIA_SESSION_DO.idFromName("global_audit_session");
+              const doId = env.FDIA_SESSION_DO.idFromName(fdiaSessionId);
               const doStub = env.FDIA_SESSION_DO.get(doId);
               const policyResp = await doStub.fetch("http://do/policy");
               const stored = (await policyResp.json()) as any;
@@ -435,9 +459,10 @@ export default {
             ...(pythonCrossCheck ? { python_kernel_cross_check: pythonCrossCheck } : {}),
           };
 
-          // Asynchronously record audit log in Durable Object
+          // Asynchronously record audit log in Durable Object (same
+          // session-scoped DO as the policy read above, for consistency).
           try {
-            const doId = env.FDIA_SESSION_DO.idFromName("global_audit_session");
+            const doId = env.FDIA_SESSION_DO.idFromName(fdiaSessionId);
             const doStub = env.FDIA_SESSION_DO.get(doId);
             ctx.waitUntil(
               doStub.fetch("http://do/record", {

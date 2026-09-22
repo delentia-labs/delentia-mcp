@@ -1,5 +1,5 @@
 import { executeRCT7, type RCT7Input } from "./index.js";
-import { captureException } from "@delentia/shared";
+import { captureException, resolveSessionDOName } from "@delentia/shared";
 export { RCT7SessionDO } from "./session-do.js";
 
 interface Env {
@@ -164,7 +164,13 @@ export default {
           const result = executeRCT7(params);
 
           try {
-            const doId = env.RCT7_SESSION_DO.idFromName("global_rct7_session");
+            // Real fix (ROADMAP.md "Now — Remaining integrity fixes"):
+            // thinking records previously accumulated across ALL callers
+            // globally with no opt-out. An explicit session_id now
+            // genuinely isolates this caller's record; omitting it
+            // preserves the exact prior shared-default behavior.
+            const rct7SessionId = resolveSessionDOName(args, "global_rct7_session");
+            const doId = env.RCT7_SESSION_DO.idFromName(rct7SessionId);
             const doStub = env.RCT7_SESSION_DO.get(doId);
             ctx.waitUntil(
               doStub.fetch("http://do/record", {

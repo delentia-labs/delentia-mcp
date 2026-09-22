@@ -1,5 +1,5 @@
 import { compressContext, type CompressContextInput } from "./index.js";
-import { captureException } from "@delentia/shared";
+import { captureException, resolveSessionDOName } from "@delentia/shared";
 export { DeltaSessionDO } from "./session-do.js";
 
 interface Env {
@@ -164,7 +164,13 @@ export default {
           const result = compressContext(params);
 
           try {
-            const doId = env.DELTA_SESSION_DO.idFromName("global_delta_session");
+            // Real fix (ROADMAP.md "Now — Remaining integrity fixes"):
+            // compression stats previously accumulated across ALL callers
+            // globally with no opt-out. An explicit session_id now
+            // genuinely isolates this caller's stats; omitting it
+            // preserves the exact prior shared-default behavior.
+            const deltaSessionId = resolveSessionDOName(args, "global_delta_session");
+            const doId = env.DELTA_SESSION_DO.idFromName(deltaSessionId);
             const doStub = env.DELTA_SESSION_DO.get(doId);
             ctx.waitUntil(
               doStub.fetch("http://do/update", {

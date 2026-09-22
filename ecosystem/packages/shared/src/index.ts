@@ -16,3 +16,4 @@ export * from "./graph-traversal-client.js";
 export * from "./moip-client.js";
 export * from "./cord-security.js";
 export * from "./ed25519.js";
+export * from "./session-scoping.js";
