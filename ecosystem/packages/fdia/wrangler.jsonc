@@ -13,6 +13,10 @@
       {
         "name": "MEE_SESSION_DO",
         "class_name": "MEEGrowthSessionDO"
+      },
+      {
+        "name": "MEE_GATED_DO",
+        "class_name": "MEEGrowthGatedDO"
       }
     ]
   },
@@ -24,6 +28,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["MEEGrowthSessionDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["MEEGrowthGatedDO"]
     }
   ],
   "vars": {

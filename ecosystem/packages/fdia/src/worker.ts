@@ -10,8 +10,11 @@ import {
   createSessionToken,
   verifySessionToken,
   resolveSessionDOName,
+  generateSigningKeypair,
+  type GatedTransitionPayload,
+  type MutateStateResponse,
 } from "@delentia/shared";
-export { MEEGrowthSessionDO } from "@delentia/shared";
+export { MEEGrowthSessionDO, MEEGrowthGatedDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
 export { FDIASessionDO } from "./session-do.js";
 import { callPythonKernelFdia } from "./pythonKernelBridge.js";
@@ -19,6 +22,23 @@ import { callPythonKernelFdia } from "./pythonKernelBridge.js";
 interface Env {
   FDIA_SESSION_DO: DurableObjectNamespace;
   MEE_SESSION_DO?: DurableObjectNamespace;
+  // Round 33 (opt-in, additive): binds the new MEEGrowthGatedDO for the
+  // `mee_gated_transition` tool. Unset on any deployment that hasn't added
+  // it to wrangler.jsonc yet — the tool then returns a clear "not
+  // configured" error instead of throwing, and every OTHER tool's behavior
+  // is completely unaffected either way.
+  MEE_GATED_DO?: DurableObjectNamespace;
+  // Optional shared secret pair used to VERIFY (never to sign — this
+  // worker never signs anything) a caller-submitted `jitna_signature` on
+  // `mee_gated_transition`. Only the public half is actually read; the
+  // private field exists only so the exact same secret pair configured on
+  // the jitna worker (see packages/jitna/src/index.ts's
+  // getOrCreateJitnaSigningKeypair) can be copy-pasted here unmodified.
+  // When unset, this worker falls back to a real but ISOLATE-LOCAL
+  // ephemeral keypair (same disclosed caveat as jitna's own
+  // "ephemeral_isolate" key_source: real Ed25519 either way, but not a
+  // durable cross-worker identity unless a configured secret is shared).
+  JITNA_SIGNING_PUBLIC_KEY_JWK?: string;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
   SENTRY_DSN?: string;
@@ -67,6 +87,44 @@ async function stepMeeGrowth(
   } catch {
     return undefined;
   }
+}
+
+// Isolate-lifetime cache for the ephemeral fallback verifying key, same
+// warm-isolate-caching pattern as jitna/src/index.ts's own
+// `_cachedKeypair` and this file's `stepMeeGrowth` — kept as a small local
+// duplicate rather than importing @delentia/mcp-jitna directly, since that
+// would create a build-order dependency (this package's own `build`
+// script step runs before jitna's in the root `npm run build` pipeline)
+// for a function this tiny; the real crypto primitive underneath
+// (generateSigningKeypair from @delentia/shared's ed25519.ts) is the exact
+// same one jitna itself calls — no new/ad-hoc crypto is introduced.
+let _cachedGatedVerifyingPublicKey: CryptoKey | undefined;
+
+/**
+ * Resolves the REAL Ed25519 public key this worker trusts to verify a
+ * `mee_gated_transition` caller's `jitna_signature` — sourced from this
+ * worker's OWN environment/config, never from anything inside the
+ * caller-supplied arguments (see mee-growth-gated-do.ts's module docstring
+ * point 2 for why that separation matters). Returns a JWK, not a raw
+ * string, so a malformed configured secret fails safely (caught below,
+ * falls back to a real generated key) rather than being passed through
+ * unchecked.
+ */
+async function getTrustedGatedVerifyingPublicKeyJwk(env: Env): Promise<JsonWebKey> {
+  if (env.JITNA_SIGNING_PUBLIC_KEY_JWK) {
+    try {
+      const parsed = JSON.parse(env.JITNA_SIGNING_PUBLIC_KEY_JWK);
+      if (parsed && typeof parsed === "object") return parsed as JsonWebKey;
+    } catch {
+      // Malformed configured secret — fall through to ephemeral generation
+      // rather than crash the whole tool call.
+    }
+  }
+  if (!_cachedGatedVerifyingPublicKey) {
+    const { publicKey } = await generateSigningKeypair();
+    _cachedGatedVerifyingPublicKey = publicKey;
+  }
+  return (await crypto.subtle.exportKey("jwk", _cachedGatedVerifyingPublicKey)) as JsonWebKey;
 }
 
 export default {
@@ -362,6 +420,86 @@ export default {
           );
         }
 
+        // Tool: mee_gated_transition (Round 33, genuinely opt-in/additive —
+        // a brand-new tool name, so no existing tool's default behavior or
+        // response shape changes regardless of whether MEE_GATED_DO is
+        // bound). Unlike evaluate_fdia's own `authorized` field (a
+        // caller-suppliable legacy override honored only when explicitly
+        // false), this tool accepts NO authorization boolean at all — see
+        // mee-growth-gated-do.ts's module docstring for the full rationale.
+        if (body.method === "tools/call" && (body.params?.name === "mee_gated_transition" || body.tool === "mee_gated_transition")) {
+          const args = body.params?.arguments || body.params || body;
+
+          if (!env.MEE_GATED_DO) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify(
+                        { status: "error", message: "MEE_GATED_DO binding not configured on this deployment. This tool is opt-in; every other tool is unaffected." },
+                        null,
+                        2
+                      ),
+                    },
+                  ],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
+
+          const gatedSessionId = resolveSessionDOName(args, "global_mee_gated_session");
+          const doId = env.MEE_GATED_DO.idFromName(gatedSessionId);
+          const doStub = env.MEE_GATED_DO.get(doId);
+
+          // Raw FDIA inputs only — deliberately NO `authorized`/`isAuthorized`
+          // field is read from `args` here. The DO itself re-runs the real
+          // evaluateFDIA() server-side and gates on that computed result.
+          const payload: GatedTransitionPayload = {
+            data_quality: Number(args.data_quality),
+            intent_precision: args.intent_precision !== undefined ? Number(args.intent_precision) : undefined,
+            action_name: String(args.action_name ?? ""),
+            target_payload: args.target_payload !== undefined ? String(args.target_payload) : undefined,
+            architect_token: args.architect_token !== undefined ? String(args.architect_token) : undefined,
+            caller_role: args.caller_role !== undefined ? String(args.caller_role) : undefined,
+            caller_context: args.caller_context !== undefined ? String(args.caller_context) : undefined,
+            dual_signoff_confirmed: args.dual_signoff_confirmed !== undefined ? Boolean(args.dual_signoff_confirmed) : undefined,
+            custom_policy: args.custom_policy,
+            consensusResult: args.consensus_result ?? args.consensusResult,
+            intentId: String(args.intent_id ?? args.intentId ?? ""),
+            jitnaSignature: String(args.jitna_signature ?? args.jitnaSignature ?? ""),
+            agentId: gatedSessionId,
+          };
+
+          // The verifying public key comes ONLY from this worker's own
+          // trusted config/isolate cache — never from `args`.
+          const trustedJitnaPublicKeyJwk = await getTrustedGatedVerifyingPublicKeyJwk(env);
+
+          const doResp = await doStub.fetch("http://do/mutate_state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ payload, trustedJitnaPublicKeyJwk }),
+          });
+          const result = (await doResp.json()) as MutateStateResponse;
+
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                isError: !result.accepted,
+              },
+            }),
+            { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
+
         // Tool: evaluate_fdia
         if (body.method === "tools/call" || body.tool === "evaluate_fdia" || body.action_name) {
           const args = body.params?.arguments || body.params || body;
@@ -618,6 +756,54 @@ export default {
                     annotations: {
                       audience: ["user", "assistant"],
                       priority: 0.9,
+                      readOnlyHint: false,
+                    },
+                  },
+                  {
+                    name: "mee_gated_transition",
+                    description: "OPT-IN (Round 33): submits a real, Durable-Object-persisted, hash-chained MEE growth transition that is gated on TWO independently re-verified checks — a fresh server-side evaluateFDIA() run over the raw inputs you supply (never a boolean you assert), and a real Ed25519 signature check (`jitna_signature`) against this worker's own trusted verifying key. A transition is ACCEPTED only when both pass; growth state (growthFactor, sequenceNumber, stateHash) advances ONLY on acceptance — a rejected transition changes nothing except `rejectedCount`. `consensus_result` (isConsensusValid/isCacheHit/isMalicious) maps to a real growth delta via the same confidenceToGrowthDelta helper packages/intent-loop's ConsensusVerifier already uses: fresh valid consensus is the strongest positive signal, a cache hit is weaker (reused evidence), invalid/malicious consensus is a governance violation with a strong negative delta. USE WHEN: you have a real, already-computed multi-model consensus result and a genuine Ed25519-signed attestation for it, and want a tamper-evident, hash-chained growth record. DO NOT USE WHEN: you just want the plain FDIA gate (use evaluate_fdia) or plain growth tracking with no gating/signature requirement (use evaluate_fdia's own session_id-scoped mee_growth). Requires the MEE_GATED_DO binding; returns a clear configuration error (not a crash) when unbound.",
+                    inputSchema: {
+                      type: "object",
+                      properties: {
+                        data_quality: { type: "number", minimum: 0.0, maximum: 1.0, description: "D (Data Quality) fed into the real server-side evaluateFDIA() re-check." },
+                        intent_precision: { type: "number", minimum: 0.5, description: "I (Intent Precision) fed into the real server-side evaluateFDIA() re-check. Defaults to 1.0." },
+                        action_name: { type: "string", description: "Target action identifier fed into the real server-side evaluateFDIA() re-check." },
+                        target_payload: { type: "string", description: "Optional target payload/path for conditional policy checks." },
+                        architect_token: { type: "string", description: "Optional cryptographic Architect token for high-risk actions requiring human signature." },
+                        caller_role: { type: "string", description: "RBAC role of the caller. Defaults to developer." },
+                        caller_context: { type: "string", description: "Optional contextual metadata." },
+                        dual_signoff_confirmed: { type: "boolean", description: "Whether a verified second human officer has confirmed the operation." },
+                        custom_policy: { type: "object", description: "Optional inline enterprise policy override for this evaluation." },
+                        consensus_result: {
+                          type: "object",
+                          description: "A real, already-computed multi-model consensus outcome.",
+                          properties: {
+                            isConsensusValid: { type: "boolean" },
+                            isCacheHit: { type: "boolean" },
+                            isMalicious: { type: "boolean" },
+                          },
+                          required: ["isConsensusValid"],
+                        },
+                        intent_id: { type: "string", description: "Identifier of the intent/transition being certified. Part of the signed content and the hash chain input." },
+                        jitna_signature: { type: "string", description: "Base64 Ed25519 signature over this call's canonical payload (every field above except this one), produced by a source holding this worker's trusted signing key. Missing/malformed/wrong-key signatures are always rejected." },
+                        session_id: { type: "string", description: "Optional: scopes which agent/session's growth-gated DO instance this call reads/writes. Omit for the shared default." },
+                      },
+                      required: ["data_quality", "action_name", "consensus_result", "intent_id", "jitna_signature"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        accepted: { type: "boolean", description: "True only if BOTH the real FDIA re-check authorized the action AND the Ed25519 signature verified." },
+                        state: { type: "object", description: "Current persisted GatedState (growthFactor, sequenceNumber, stateHash, counts)." },
+                        fdia_result: { type: "object", description: "The full, real evaluateFDIA() result this decision was based on." },
+                        signature_valid: { type: "boolean" },
+                        rejection_reason: { type: "string", description: "Present only when accepted=false: signature_invalid or fdia_not_authorized." },
+                      },
+                      required: ["accepted", "state", "fdia_result", "signature_valid"],
+                    },
+                    annotations: {
+                      audience: ["user", "assistant"],
+                      priority: 0.7,
                       readOnlyHint: false,
                     },
                   },
