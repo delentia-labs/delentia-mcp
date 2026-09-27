@@ -20,7 +20,8 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP",
-    "ZUPLO_SHARED_SECRET": "delentia_secret_gateway_token_2026_live"
+    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP"
+    // ZUPLO_SHARED_SECRET is a Worker secret now: `npx wrangler secret put ZUPLO_SHARED_SECRET`
+    // (it used to be a plain var here, i.e. committed to git).
   }
 }

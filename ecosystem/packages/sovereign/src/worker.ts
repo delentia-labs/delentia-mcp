@@ -251,12 +251,19 @@ export default {
         if (body.method === "tools/call") {
           const authHeader = request.headers.get("Authorization") || "";
           const internalSecret = request.headers.get("X-Delentia-Internal-Secret") || request.headers.get("x-delentia-internal-secret") || "";
-          const expectedSecret = env.ZUPLO_SHARED_SECRET || env.DELENTIA_GATEWAY_SECRET || "delentia_secret_gateway_token_2026_live";
-          const clientIp = request.headers.get("x-caller-id") || request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "community_user";
+          // No built-in fallback value (2026-09-27): the previous hardcoded default was committed to
+          // git, so anyone who had read the repo could claim the unlimited tier. Unset = disabled.
+          const expectedSecret = env.ZUPLO_SHARED_SECRET || env.DELENTIA_GATEWAY_SECRET || "";
+          const fromGateway = expectedSecret.length > 0 && internalSecret === expectedSecret;
+          // cf-connecting-ip is set by Cloudflare and can't be forged by the caller. x-caller-id is
+          // only honoured from the gateway; from anyone else it would let them reset their own quota.
+          const clientIp =
+            (fromGateway && request.headers.get("x-caller-id")) || request.headers.get("cf-connecting-ip") || "community_user";
 
+          // A "Bearer zpka_..." header alone is no longer trusted: Zuplo validates its keys at the
+          // gateway and forwards with the shared secret; a direct caller could send any zpka_ string.
           const isEnterprise = Boolean(
-            (internalSecret && internalSecret === expectedSecret) ||
-            authHeader.startsWith("Bearer zpka_") ||
+            fromGateway ||
             (env.ENTERPRISE_API_KEYS && env.ENTERPRISE_API_KEYS.split(",").includes(authHeader.replace("Bearer ", "")))
           );
 
