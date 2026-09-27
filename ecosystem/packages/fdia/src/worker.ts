@@ -56,6 +56,9 @@ interface Env {
   // a real cross-check is ALSO run and attached as
   // `python_kernel_cross_check`, best-effort, never blocking.
   PYTHON_KERNEL_URL?: string;
+  // Round 48: bearer token for the kernel API (set with
+  // `wrangler secret put PYTHON_KERNEL_TOKEN`, never in wrangler.jsonc).
+  PYTHON_KERNEL_TOKEN?: string;
 }
 
 /**
@@ -604,7 +607,7 @@ export default {
             data_quality: params.data_quality,
             intent_precision: intentPrecision,
             authorized: params.authorized,
-          });
+          }, 3000, env.PYTHON_KERNEL_TOKEN);
 
           // Real, persistent MEE growth step (Durable-Object-backed) — same
           // design as packages/sovereign: delta = future_score - 0.5,

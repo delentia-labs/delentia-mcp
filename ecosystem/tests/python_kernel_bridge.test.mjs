@@ -127,3 +127,16 @@ test("evaluate_fdia worker handler: python_kernel_cross_check is present and rea
     },
   );
 });
+
+test("callPythonKernelFdia: sends the bearer token only when one is configured (Round 48)", async () => {
+  const seen = [];
+  await withMockKernelServer((req, res) => {
+    seen.push(req.headers.authorization ?? null);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ future_score: 0.9, authorized: true, D: 0.9, I: 1, A: 1, formula: "F", source: "mock" }));
+  }, async (url) => {
+    await callPythonKernelFdia(url, { data_quality: 0.9, intent_precision: 1.0, authorized: true });
+    await callPythonKernelFdia(url, { data_quality: 0.9, intent_precision: 1.0, authorized: true }, 3000, "s3cret");
+  });
+  assert.deepEqual(seen, [null, "Bearer s3cret"]);
+});

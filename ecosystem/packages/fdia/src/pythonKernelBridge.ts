@@ -28,10 +28,18 @@ export interface PythonKernelFdiaResult {
   source: string;
 }
 
+/**
+ * Round 48: `authToken` (the worker's PYTHON_KERNEL_TOKEN secret) is sent
+ * as `Authorization: Bearer <token>`. The Python API now rejects any
+ * request that arrives through Cloudflare/a proxy unless it carries the
+ * token set in DELENTIA_API_TOKEN on the kernel host, so a publicly
+ * reachable kernel is never an open agent API.
+ */
 export async function callPythonKernelFdia(
   pythonKernelUrl: string | undefined,
   params: { data_quality: number; intent_precision: number; authorized: boolean },
-  timeoutMs = 3000
+  timeoutMs = 3000,
+  authToken?: string
 ): Promise<PythonKernelFdiaResult | undefined> {
   if (!pythonKernelUrl) return undefined;
 
@@ -41,7 +49,10 @@ export async function callPythonKernelFdia(
     try {
       const resp = await fetch(`${pythonKernelUrl.replace(/\/$/, "")}/v1/kernel/fdia/evaluate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({
           data_quality: params.data_quality,
           intent_precision: params.intent_precision,

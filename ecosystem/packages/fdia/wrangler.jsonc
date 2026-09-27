@@ -41,7 +41,10 @@
     // reachable Delentia-OS Python kernel API exists (see
     // Delentia-OS/DEPLOYMENT.md), add:
     // "PYTHON_KERNEL_URL": "https://<your-real-host>"
-    // and run `npx wrangler deploy` to activate pythonKernelBridge.ts's
+    // Round 48: the kernel API rejects proxied/tunneled requests without
+    // its DELENTIA_API_TOKEN, so also store the same value as a Worker
+    // secret (never here): `npx wrangler secret put PYTHON_KERNEL_TOKEN`.
+    // Then run `npx wrangler deploy` to activate pythonKernelBridge.ts's
     // cross-check in the real evaluate_fdia handler.
   }
 }
