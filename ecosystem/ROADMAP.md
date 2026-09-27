@@ -86,6 +86,14 @@ for the verified per-tool status this roadmap is fixing).
 - [x] Added CI (`.github/workflows/ci.yml`) — build + typecheck + full test suite on every PR/push to `main`. Previously none existed.
 - [x] Added 10+ regression tests covering all of the above; fixed 3 stale test assertions that encoded old buggy/templated behavior as "correct".
 
+## Done (2026-09-27, Round 46 — PR #1)
+
+- Policy isolation, closing the "Remaining integrity fixes" item below: both `sovereign` and `fdia` now store `configure_policy` results per `session_id` in a Durable Object, and refuse writes without one — anonymous callers can no longer replace the shared default policy. `sovereign`'s module-global/KV policy is gone, so the two workers now use one strategy. Deployed to `sovereign` and `fdia`; `delta`/`jitna`/`rct7` redeployed with `bd6d90a`'s session scoping.
+- Delta v2 filtering + `retain_original` / `expand_context` (compress, keep the original retrievable).
+- Real-data benchmark (`benchmarks/compression-real/`), prompt-caching comparison, Intent Loop cost model, cloud harnesses (Claude direct, OpenRouter multi-vendor, budget-capped).
+- `ConsensusVerifier` early stop: skips verifier calls that cannot change the outcome.
+- CI runs 8 previously-unrun test files; README/QUICKSTART rewritten without unsupported claims.
+
 ## Now — Delta Engine: the gap between "compress one blob" and "remember across a session"
 
 Found during a 2026-09-11 review requested specifically because token
@@ -97,14 +105,14 @@ was already sent in a *previous* call and returns only the true delta. The
 blob) is not implemented, even though the infrastructure to support it is
 half-built:
 
-- [ ] **Real bug**: all 4 pillar workers (`fdia`, `rct7`, `delta`, `jitna`) key their Durable Object with a hardcoded literal name (`idFromName("global_delta_session")` etc, see `packages/*/src/worker.ts`) — every caller across the entire public endpoint shares **one single object**. For `delta`, this means compression stats silently accumulate across all users mixed together. For `fdia`, this is more serious: `configure_policy` on the standalone `fdia` worker writes to this same global object, so **one caller's policy change can affect every other caller's `evaluate_fdia` results** on the shared public endpoint. Worth a deliberate decision: is a single shared policy intentional for the free tier (with isolation expected only for dedicated enterprise deployments), or does this need real per-caller session scoping?
+- [x] **Real bug** (fixed `bd6d90a` + Round 46; deployed 2026-09-27): all 4 pillar workers (`fdia`, `rct7`, `delta`, `jitna`) key their Durable Object with a hardcoded literal name (`idFromName("global_delta_session")` etc, see `packages/*/src/worker.ts`) — every caller across the entire public endpoint shares **one single object**. For `delta`, this means compression stats silently accumulate across all users mixed together. For `fdia`, this is more serious: `configure_policy` on the standalone `fdia` worker writes to this same global object, so **one caller's policy change can affect every other caller's `evaluate_fdia` results** on the shared public endpoint. Worth a deliberate decision: is a single shared policy intentional for the free tier (with isolation expected only for dedicated enterprise deployments), or does this need real per-caller session scoping?
 - [ ] `packages/delta/src/session-do.ts`'s `accumulatedDeltas: string[]` field is defined but never written to or read from anywhere — dead code suggesting the original design intended more than what shipped.
 - [ ] To build real cross-session delta memory: `compress_context` would need (a) a `session_id` input parameter (none exists in the tool schema today), (b) to store the last-seen `raw_context` (or its line-set) per session, and (c) to diff the new call's `raw_context` against that stored state and return only genuinely new/changed lines — not re-run the same single-blob dedup on the whole thing every time. This is real, well-scoped feature work, not a quick fix — estimate as its own milestone, not bundled into an integrity pass.
 
 ## Now — Remaining integrity fixes
 
-- [ ] Resolve the `sovereign` (in-memory/KV) vs `fdia` standalone (Durable Object) state-storage inconsistency for `configure_policy` — pick one strategy or document why both are intentional
-- [ ] Regenerate `BENCHMARK_REPORT.md` and manually verify no unpopulated template placeholders remain before republishing its headline numbers
+- [x] Resolve the `sovereign` (in-memory/KV) vs `fdia` standalone (Durable Object) state-storage inconsistency for `configure_policy` — both now use per-session Durable Objects (Round 46)
+- [ ] Regenerate `BENCHMARK_REPORT.md` and manually verify no unpopulated template placeholders remain before republishing its headline numbers — superseded for compression by `benchmarks/compression-real/`; the untracked `BENCHMARK_REPORT.md` in the main checkout still has `undefined` values and unmeasured baselines and should not be published
 
 ## Next — Cross-repo FDIA consolidation
 
