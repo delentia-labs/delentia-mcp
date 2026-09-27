@@ -76,9 +76,17 @@ if (!RUN) {
   console.log("Dry run: nothing sent. Add --run to execute (requires OPENROUTER_API_KEY in the environment).");
   return;
 }
-const KEY = process.env.OPENROUTER_API_KEY;
+const KEY = (process.env.OPENROUTER_API_KEY ?? "").trim();
 if (!KEY) {
   console.error("OPENROUTER_API_KEY is not set in this shell. Set it yourself, then rerun. Nothing was sent.");
+  process.exitCode = 1;
+  return;
+}
+if (!/^sk-or-v1-[0-9a-f]{64}$/.test(KEY)) {
+  console.error(
+    "OPENROUTER_API_KEY does not look like an OpenRouter key (expected sk-or-v1- followed by 64 hex characters, " +
+      "no quotes or <> inside the value). Nothing was sent."
+  );
   process.exitCode = 1;
   return;
 }
@@ -98,6 +106,10 @@ async function chat(model, messages) {
       continue;
     }
     const j = await res.json();
+    if (res.status === 401 || res.status === 402 || res.status === 403) {
+      // Wrong key, no credit, or forbidden: every later call would fail the same way.
+      throw Object.assign(new Error(`${res.status} ${JSON.stringify(j.error ?? j).slice(0, 200)}`), { fatal: true });
+    }
     if (!res.ok) throw new Error(`${res.status} ${JSON.stringify(j.error ?? j).slice(0, 200)}`);
     const u = j.usage ?? {};
     spent += u.cost ?? 0;
@@ -113,7 +125,8 @@ async function chat(model, messages) {
 }
 const grade = (qid, text) => new RegExp(Q[qid].answer, "is").test(text) && !/NOT FOUND/i.test(text);
 
-const results = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")).results : [];
+// Resume: keep successful results only, so failed calls (e.g. a run with a bad key) are retried.
+const results = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")).results.filter((r) => !r.error) : [];
 const done = new Set(results.map((r) => `${r.model}|${r.question_id}|${r.mode}`));
 const save = () => writeFileSync(OUT, JSON.stringify({ generated_at: new Date().toISOString(), models: MODELS, results }, null, 1));
 
@@ -157,6 +170,12 @@ outer: for (const model of MODELS) {
         }
         process.stdout.write(`\r${model.padEnd(34)} ${mode.padEnd(11)} ${id.padEnd(8)} spent $${spent.toFixed(4)}   `);
       } catch (err) {
+        if (err.fatal) {
+          console.log(`
+Stopping: ${String(err.message).slice(0, 160)}`);
+          save();
+          break outer;
+        }
         results.push({ model, question_id: id, mode, error: String(err.message ?? err).slice(0, 200) });
         console.log(`\n${model} ${mode} ${id}: ${String(err.message ?? err).slice(0, 160)}`);
       }
