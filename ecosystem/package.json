@@ -47,6 +47,7 @@
     "bench:compression:qa": "node benchmarks/compression-real/qa_ollama.mjs",
     "bench:caching-vs-compression": "node benchmarks/compression-real/caching_vs_compression_sim.mjs",
     "bench:cloud:claude": "node benchmarks/compression-real/cloud_claude.mjs",
+    "bench:cloud:openrouter": "node benchmarks/compression-real/cloud_openrouter.mjs",
     "bench:intent-loop-cost": "node benchmarks/compression-real/intent_loop_cost_model.mjs",
     "test:benchmarks": "node tests/benchmark_fdia_vs.mjs && node tests/benchmark_rct7_vs.mjs && node tests/benchmark_delta_vs.mjs && node tests/stress_jitna_concurrency.mjs",
     "demo:vulnerable": "node scripts/demo_vulnerable_cli.mjs",
