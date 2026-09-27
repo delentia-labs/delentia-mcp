@@ -1,0 +1,97 @@
+96 (question, mode) pairs to run with qwen2.5:7b
+code-1   full              OK  272s  The default maxIntentLength in the gatekeeper config is 1000.
+code-2   full              OK  261s  The default forbidden keywords blocked by the gatekeeper config are "hack", "exploit", and
+code-3   full              OK  187s  The default fdiaThreshold value is 0.25.
+code-4   full              OK  177s  A cached memory must have a Jaccard similarity score greater than 0.95 to count as a seman
+code-5   full              OK  175s  The specialist system prompt asks the model to stay under 120 words.
+code-6   full              OK  272s  liquid/lfm-2.5-2.6b:free
+code-p1  full              OK  267s  The maximum length of an intent before it is rejected by the gate is 1000 characters, as d
+code-p2  full              OK  259s  The forbidden keywords that cause a request to be refused outright are "hack", "exploit", 
+code-p3  full              OK  268s  Two requests must have a semantic similarity score of over 0.95 for the stored answer to b
+code-p4  full              OK  175s  More than 50% of the models that actually responded must agree for an output to be accepte
+code-1   delta_aggressive  OK  62s  The default maxIntentLength in the gatekeeper config is 1000.
+code-2   delta_aggressive  OK  144s  The default gatekeeper config blocks the forbidden keywords "hack", "exploit", and "bypass
+code-3   delta_aggressive  OK  136s  The default fdiaThreshold value is 0.25.
+code-4   delta_aggressive  OK  120s  The cached memory must have a Jaccard similarity score greater than 0.95 to count as a sem
+code-5   delta_aggressive  OK  146s  The specialist system prompt asks the model to stay under 120 words.
+code-6   delta_aggressive  OK  51s  liquid/lfm-2.5-2.6b:free
+code-p1  delta_aggressive  BAD 153s  NOT FOUND.
+code-p2  delta_aggressive  OK  28s  The forbiddenKeywords array, specifically containing the words "hack", "exploit", and "byp
+code-p3  delta_aggressive  BAD 64s  Two requests must be semantically similar according to Jaccard similarity over word sets t
+code-p4  delta_aggressive  OK  67s  The consensus threshold is 0.5, meaning more than 50% of models that actually responded mu
+code-1   v2_aggressive     OK  23s  The default maxIntentLength in the gatekeeper config is 1000.
+code-2   v2_aggressive     OK  32s  The default gatekeeper config blocks the forbidden keywords "hack", "exploit", and "bypass
+code-3   v2_aggressive     OK  17s  The default fdiaThreshold value is 0.25.
+code-4   v2_aggressive     OK  55s  0.95
+code-5   v2_aggressive     OK  63s  The specialist system prompt asks the model to stay under 120 words.
+code-6   v2_aggressive     OK  42s  liquid/lfm-2.5-2.6b:free
+code-p1  v2_aggressive     OK  30s  The maximum intent length before the gate rejects it as too long is 1000 characters.
+code-p2  v2_aggressive     OK  32s  The forbiddenKeywords array contains the words "hack", "exploit", and "bypass".
+code-p3  v2_aggressive     OK  34s  The stored answer is reused if the semantic similarity between the intents of two requests
+code-p4  v2_aggressive     OK  29s  At least 50% of the models that actually responded must agree.
+code-1   tail_matched      BAD 42s  NOT FOUND.
+code-2   tail_matched      BAD 48s  NOT FOUND.
+code-3   tail_matched      BAD 43s  NOT FOUND.
+code-4   tail_matched      BAD 40s  NOT FOUND.
+code-5   tail_matched      OK  61s  The specialist system prompt asks the model to stay under 120 words.
+code-6   tail_matched      BAD 25s  NOT FOUND.
+code-p1  tail_matched      BAD 43s  NOT FOUND.
+code-p2  tail_matched      BAD 19s  NOT FOUND
+code-p3  tail_matched      BAD 49s  NOT FOUND.
+code-p4  tail_matched      BAD 29s  NOT FOUND.
+docs-1   full              OK  46s  The monthly price of the commercial gateway plan is 29 USD.
+docs-2   full              OK  4s  The local MCP endpoint uses port `8787` for testing, as indicated in the testing instructi
+docs-3   full              OK  1s  @delentia/mcp-delta
+docs-4   full              OK  1s  The legacy SSE transport path is `/sse`.
+docs-5   full              OK  2s  The four JITNA pillars that work is distributed to are Router, Guardian, Executor, and Scr
+docs-p1  full              OK  2s  The paid subscription costs 29 USD per month.
+docs-p2  full              OK  4s  When running on your own machine, you should point the inspector at `http://localhost:8787
+docs-1   delta_aggressive  OK  5s  The monthly price of the commercial gateway plan is 29 USD.
+docs-2   delta_aggressive  OK  22s  http://localhost:8787/mcp
+docs-3   delta_aggressive  OK  8s  @delentia/mcp-delta
+docs-4   delta_aggressive  OK  6s  The path used for the legacy SSE transport is `/sse`.
+docs-5   delta_aggressive  OK  13s  Router, Guardian, Executor, Scribe
+docs-p1  delta_aggressive  BAD 4s  NOT FOUND.
+docs-p2  delta_aggressive  BAD 9s  NOT FOUND
+docs-1   v2_aggressive     OK  11s  The monthly price of the commercial gateway plan is 29 USD.
+docs-2   v2_aggressive     OK  31s  http://localhost:8787/mcp
+docs-3   v2_aggressive     OK  19s  @delentia/mcp-delta
+docs-4   v2_aggressive     OK  11s  /SSE
+docs-5   v2_aggressive     OK  20s  The four JITNA pillars that work is distributed to are Router, Guardian, Executor, and Scr
+docs-p1  v2_aggressive     BAD 10s  NOT FOUND.
+docs-p2  v2_aggressive     BAD 18s  NOT FOUND
+docs-1   tail_matched      BAD 5s  NOT FOUND.
+docs-2   tail_matched      OK  23s  http://localhost:8787/mcp
+docs-3   tail_matched      BAD 10s  NOT FOUND
+docs-4   tail_matched      BAD 6s  NOT FOUND.
+docs-5   tail_matched      BAD 14s  NOT FOUND
+docs-p1  tail_matched      OK  5s  29 USD / เดือน
+docs-p2  tail_matched      BAD 1s  NOT FOUND
+log-1    full              OK  153s  @delentia/mcp-delta@1.1.0 build
+log-2    full              OK  3s  @delentia/mcp-intent-loop@0.1.0 build
+log-3    full              OK  4s  A signature verified against the wrong public key fails.
+log-4    full              OK  5s  In the minority/split vote case, there was 1 YES and 2 NO votes.
+log-5    full              OK  4s  @delentia/shared@1.2.0 was built.
+log-p1   full              OK  3s  Yes, a signature verified against the WRONG public key fails.
+log-p2   full              BAD 2s  NOT FOUND.
+log-1    delta_aggressive  OK  15s  @delentia/mcp-delta@1.1.0 build
+log-2    delta_aggressive  OK  15s  @delentia/mcp-intent-loop@0.1.0 build
+log-3    delta_aggressive  OK  57s  A signature verified against the wrong public key fails.
+log-4    delta_aggressive  OK  66s  1 YES, 2 NO
+log-5    delta_aggressive  OK  15s  @delentia/shared@1.2.0 build
+log-p1   delta_aggressive  OK  38s  Ed25519 - a signature verified against the WRONG public key fails (1.5618ms)
+log-p2   delta_aggressive  BAD 53s  NOT FOUND.
+log-1    v2_aggressive     OK  14s  @delentia/mcp-delta@1.1.0 build
+log-2    v2_aggressive     OK  14s  @delentia/mcp-intent-loop@0.1.0 build
+log-3    v2_aggressive     OK  63s  Ed25519 - a signature verified against the WRONG public key fails.
+log-4    v2_aggressive     OK  52s  In the minority/split vote case, there was 1 YES and 2 NO votes.
+log-5    v2_aggressive     OK  14s  @delentia/shared@1.2.0 build
+log-p1   v2_aggressive     BAD 57s  NOT FOUND.
+log-p2   v2_aggressive     BAD 22s  NOT FOUND.
+log-1    tail_matched      BAD 13s  NOT FOUND.
+log-2    tail_matched      BAD 0s  NOT FOUND
+log-3    tail_matched      OK  56s  A signature verified against the wrong public key fails.
+log-4    tail_matched      BAD 62s  NOT FOUND.
+log-5    tail_matched      BAD 1s  NOT FOUND.
+log-p1   tail_matched      OK  36s  Yes, a signature verified against the WRONG public key fails.
+log-p2   tail_matched      BAD 51s  NOT FOUND.

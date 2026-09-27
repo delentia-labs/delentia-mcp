@@ -45,6 +45,8 @@
     "test:mee-gated": "node tests/mee_growth_gated_do.test.mjs",
     "bench:compression": "node benchmarks/compression-real/run.mjs",
     "bench:compression:qa": "node benchmarks/compression-real/qa_ollama.mjs",
+    "bench:caching-vs-compression": "node benchmarks/compression-real/caching_vs_compression_sim.mjs",
+    "bench:intent-loop-cost": "node benchmarks/compression-real/intent_loop_cost_model.mjs",
     "test:benchmarks": "node tests/benchmark_fdia_vs.mjs && node tests/benchmark_rct7_vs.mjs && node tests/benchmark_delta_vs.mjs && node tests/stress_jitna_concurrency.mjs",
     "demo:vulnerable": "node scripts/demo_vulnerable_cli.mjs",
     "demo:fdia": "node scripts/demo_fdia_protected_cli.mjs",
