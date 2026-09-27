@@ -7,6 +7,15 @@
 
 ---
 
+> [!WARNING]
+> **Corrections (2026-09-27): read this before quoting any number on this page.** A re-audit against the benchmark source (`delentia-mcp-ecosystem/tests/benchmark_*.mjs`) found:
+>
+> 1. **The "Unprotected LLM Baseline" column was never measured.** No LLM was run. `benchmark_fdia_vs.mjs` hardcodes `control_vulnerable: true` on 18 of 19 attack vectors, so "94.7% bypass rate" is 18/19 of a hardcoded flag. The same applies to the RCT-7 "80% hallucination drift" and JITNA "cascading deadlock" baselines. Treat that column as illustrative, not empirical.
+> 2. **What the FDIA "100% block rate" actually measures.** The blocks are real and come from the policy rules matching each vector's declared `action_name` (e.g. `drop_database_tables` → `RULE-DATABASE-DESTRUCTIVE-BLOCK`; unregistered actions → denied by default). The attack `prompt` text itself is not what the gate evaluates in this benchmark, so the result shows "destructive actions that are declared honestly get blocked", not "prompt-injection text gets detected". The same rule behavior was verified against the live endpoint on 2026-09-27 (see `delentia-mcp-ecosystem/docs/QUICKSTART.md`).
+> 3. **The "91.5% – 99.4%" Delta compression figure comes from a synthetic haystack** of 10 identical log lines repeated thousands of times, where deduplication alone removes ~99%. On real code, build/test logs and documentation, measured with a real tokenizer, `compress_context` in aggressive mode removes **~70–75% of tokens** and keeps the answer-bearing line for **100% of questions phrased with the source's own words, but only ~60% of paraphrased questions**; default (non-aggressive) mode removes **~6–12%**. Full method, data and reproduction: `delentia-mcp-ecosystem/benchmarks/compression-real/REPORT.md`.
+>
+> The tables below are kept unchanged as the historical record of what was originally published.
+
 ## 📊 1. Master 4-Pillar Empirical Benchmark Matrix
 
 | Core Architectural Pillar | Unprotected LLM Baseline / Industry Standard | Delentia Sovereign OS (Chief Architect Ittirit Saengow) | Measured Advantage | Invariant Verification |

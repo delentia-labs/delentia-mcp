@@ -69,7 +69,7 @@ npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 ```
 
 > **Developer Sandbox Free Tier**: Includes 50 daily free calls per caller IP out of the box with zero registration required!  
-> **Enterprise Unlimited SLA**: To unlock unlimited quota, sub-millisecond multi-region SLA, and audit compliance, pass your Zuplo API Key from the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing):
+> **Paid tier (preview)**: For a higher quota, pass a Zuplo API Key from the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing):
 > ```bash
 > npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp --header "Authorization: Bearer YOUR_ZUPLO_API_KEY"
 > ```
@@ -108,7 +108,7 @@ npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 }
 ```
 
-#### 2. Enterprise Pro Tier (Unlimited SLA with Zuplo API Key):
+#### 2. Paid tier (Zuplo API Key, higher quota — no SLA is offered yet):
 ```json
 {
   "mcpServers": {
@@ -155,7 +155,7 @@ curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
 
 - **Tamper-Proof Audit Digest:** Every security evaluation computes a SHA-256 cryptographic verification digest.
 - **Dual Sign-Off Gate:** High-risk actions unconditionally mandate multi-party authorization tokens.
-- **Zero Hallucination Guarantee:** The RCT-7 mental OS guarantees 100% causal intent alignment before execution.
+- **Structured pre-execution reasoning:** `rct_think` walks a 7-stage checklist and returns a heuristic alignment score. It helps catch vague or misaligned plans; it does not guarantee the absence of hallucinations.
 
 ---
 
