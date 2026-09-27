@@ -151,7 +151,11 @@ outer: for (const model of MODELS) {
       const q = Q[id];
       const c = mode === "v2" ? ctx(id, "v2_aggressive").context : mode === "v2_outline" ? ctx(id, "v2_outline").context : ctx(id, "full").context;
       const user =
-        mode === "full_cached"
+        // Explicit cache_control only where the provider needs it (Anthropic, Gemini). Others
+        // (OpenAI, DeepSeek, Qwen...) cache repeated prefixes automatically, and the content-part
+        // form broke that on Qwen (first rerun: 0 cached tokens, 236% of full). For them
+        // full_cached is the same request as full.
+        mode === "full_cached" && /^(anthropic|google)\//.test(model)
           ? [
               { type: "text", text: `Context:\n${c}`, cache_control: { type: "ephemeral" } },
               { type: "text", text: `Question: ${q.q}` },

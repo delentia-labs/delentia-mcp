@@ -92,10 +92,26 @@ What this shows:
 - `expand_context` recovers answers only when the model picks search terms that occur in the text.
   GPT-5 mini searched the Thai README with Thai terms and recovered 4/4; Haiku and Gemini searched in
   English and recovered 0/2 on the Thai document.
-- **Not valid yet**: DeepSeek V4 Flash and Qwen 3.7 Flash reason before answering, and the first run
-  capped output at 300 tokens (Qwen: 82/96 empty answers; DeepSeek: full-context answers cut off).
-  The harness now allows 4,000 tokens and records truncation; rerun with
-  `--models deepseek/deepseek-v4-flash,qwen/qwen3.7-flash --redo`.
+- **DeepSeek V4 Flash and Qwen 3.7 Flash (rerun, $0.03, 0 truncated answers):**
+
+  | Model | Mode | Literal | Paraphrased | Cost vs full |
+  |---|---|---:|---:|---:|
+  | DeepSeek V4 Flash | full (provider caches automatically: 100k of 161k prompt tokens) | **11/16** | 5/8 | 100% ($0.0054) |
+  | | Delta v2 | **16/16** | 5/8 | **49%** |
+  | | v2 + expand on miss | 16/16 | 6/8 | 64% |
+  | Qwen 3.7 Flash | full (auto-cached: 121k of 151k) | 16/16 | 8/8 | 100% ($0.0033) |
+  | | Delta v2 | 16/16 | 5/8 | 119% |
+  | | v2 + expand on miss | 16/16 | 5/8 | 149% |
+
+  - DeepSeek answered NOT FOUND on 5 literal questions when given the full 7.5k-token source file,
+    and got all 16 from the compressed context: for this model, **removing noise raised accuracy**
+    while halving the cost.
+  - Qwen, like GPT-5 mini, costs more with compression: its full-context requests were already
+    ~80% served from the provider's automatic cache, and it reasoned longer on the compressed text
+    (20k vs 13k output tokens).
+  - Their `full_cached` rows are not meaningful: those providers cache automatically, and the
+    explicit `cache_control` content parts the harness sent disabled Qwen's caching (0 cached,
+    236%). The harness now sends `cache_control` only to Anthropic and Gemini models.
 
 Claude direct (`cloud_claude.mjs`, needs `ANTHROPIC_API_KEY`) is also available and adds exact
 `countTokens` numbers.
