@@ -13,6 +13,7 @@
  *   delta_aggressive  compressContext() with intent_focus = the question, aggressive_mode=true
  *   (delta_* modes use the frozen v1 logic in delta_v1_reference.mjs)
  *   v2_dedup / v2_aggressive  the current packages/delta compressContext (v2), same inputs
+ *   v2_outline        v2 aggressive + outline of omitted section headings with line numbers
  *   tail_matched      naive baseline: the LAST lines of the corpus, cut to the same token budget as delta_aggressive
  *
  * Usage: node benchmarks/compression-real/run.mjs   (after `npm run build`)
@@ -78,6 +79,7 @@ for (const [corpusId, corpus] of Object.entries(spec.corpora)) {
     };
     variants.v2_dedup = compressContext({ raw_context: raw, aggressive_mode: false }).compressed_delta_text;
     variants.v2_aggressive = compressContext({ raw_context: raw, intent_focus: q.q, aggressive_mode: true }).compressed_delta_text;
+    variants.v2_outline = compressContext({ raw_context: raw, intent_focus: q.q, aggressive_mode: true, outline: true }).compressed_delta_text;
     const [aggTokens] = countTokens([variants.delta_aggressive]);
     variants.tail_matched = tailToBudget(raw, aggTokens);
 

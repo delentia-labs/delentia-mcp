@@ -1,0 +1,28 @@
+24 (question, mode) pairs to run with qwen2.5:7b
+code-1   v2_outline        OK  34s  The default maxIntentLength in the gatekeeper config is 1000.
+code-2   v2_outline        OK  47s  The default gatekeeper config blocks the forbidden keywords "hack", "exploit", and "bypass
+code-3   v2_outline        OK  27s  The default fdiaThreshold value is 0.25.
+code-4   v2_outline        OK  71s  A cached memory must have a Jaccard similarity score greater than 0.95 to count as a seman
+code-5   v2_outline        OK  80s  The specialist system prompt asks the model to stay under 120 words.
+code-6   v2_outline        OK  45s  liquid/lfm-2.5-2.6b:free
+code-p1  v2_outline        OK  34s  A request may be up to 1000 characters long before the gate rejects it as too long.
+code-p2  v2_outline        OK  35s  The words "hack", "exploit", and "bypass" cause a request to be refused outright.
+code-p3  v2_outline        OK  38s  The stored answer can be reused if the semantic similarity between the intents of two requ
+code-p4  v2_outline        OK  80s  At least 50% of the models that actually responded must agree.
+docs-1   v2_outline        OK  17s  The monthly price of the commercial gateway plan is 29 USD.
+docs-2   v2_outline        OK  34s  http://localhost:8787/mcp
+docs-3   v2_outline        OK  22s  @delentia/mcp-delta
+docs-4   v2_outline        OK  17s  /SSE
+docs-5   v2_outline        OK  24s  The four JITNA pillars that work is distributed to are Router, Guardian, Executor, and Scr
+docs-p1  v2_outline        OK  16s  The paid subscription costs 29 USD per month.
+docs-p2  v2_outline        BAD 23s  NOT FOUND.
+log-1    v2_outline        OK  24s  @delentia/mcp-delta@1.1.0 build
+log-2    v2_outline        OK  24s  @delentia/mcp-intent-loop@0.1.0 build
+log-3    v2_outline        OK  75s  A signature verified against the wrong public key fails.
+log-4    v2_outline        OK  69s  2 NO votes and 1 YES vote.
+log-5    v2_outline        OK  30s  @delentia/shared@1.2.0 build
+log-p1   v2_outline        OK  77s  Ed25519 - a signature verified against the WRONG public key fails (1.5618ms)
+log-p2   v2_outline        BAD 32s  The context compression package had the release number 2.2.0.
+2 v2_outline answers were wrong; running the expand step for each
+docs-p2  terms="lines 120-140" lines=21 evidence=true OK  tokens 60.6% of full  http://localhost:8787/mcp
+log-p2   terms="lines 30-35" lines=6 evidence=true OK  tokens 27.1% of full  The context compression package had the release number 1.1.0.

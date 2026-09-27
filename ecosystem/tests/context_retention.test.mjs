@@ -51,7 +51,9 @@ test("queryLines: the pattern is plain text, not a regex", () => {
 test("end to end: an answer dropped by aggressive compression is recovered with expand_context", async () => {
   const e = env();
   const question = "How much does the paid subscription cost each month?"; // benchmark docs-p1
-  const compressed = await call(e, "compress_context", { raw_context: README, intent_focus: question, aggressive_mode: true, retain_original: true });
+  // outline: false keeps this test on the search-term path (with the outline on, the heading
+  // "... Zuplo + Stripe 29 USD" would already carry the answer).
+  const compressed = await call(e, "compress_context", { raw_context: README, intent_focus: question, aggressive_mode: true, retain_original: true, outline: false });
   assert.equal(compressed.isError, false);
   assert.ok(compressed.payload.reduction_percentage > 50);
   assert.ok(!compressed.payload.compressed_delta_text.includes("29 USD"), "precondition: compression dropped the answer");
@@ -62,6 +64,20 @@ test("end to end: an answer dropped by aggressive compression is recovered with 
   assert.equal(expanded.isError, false);
   assert.ok(expanded.payload.lines.some((l) => l.text.includes("29 USD")));
   assert.ok(expanded.payload.lines.length < 15, "returns a few lines, not the whole file");
+});
+
+test("with retain_original the result carries an outline, and a line range from it recovers an answer that no search term found", async () => {
+  const e = env();
+  const question = "When running on my own machine, which port do I point the inspector at?"; // benchmark docs-p2
+  const c = await call(e, "compress_context", { raw_context: README, intent_focus: question, aggressive_mode: true, retain_original: true });
+  assert.ok(!c.payload.compressed_delta_text.includes("8787"), "precondition: answer dropped");
+  const heads = [...c.payload.compressed_delta_text.matchAll(/^L(\d+): (.*)$/gm)].map((m) => Number(m[1]));
+  assert.ok(heads.length > 0, "outline present");
+  // Read from the last listed heading before the answer, as a model would.
+  const answerLine = README.split("\n").findIndex((l) => l.includes("8787")) + 1;
+  const start = heads.filter((n) => n <= answerLine).at(-1);
+  const x = await call(e, "expand_context", { context_ref: c.payload.context_ref, start_line: start, end_line: start + 15 });
+  assert.ok(x.payload.lines.some((l) => l.text.includes("8787")));
 });
 
 test("expand_context rejects unknown or malformed refs", async () => {

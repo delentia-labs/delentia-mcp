@@ -21,6 +21,7 @@
  *   node benchmarks/compression-real/cloud_openrouter.mjs            # dry run
  *   node benchmarks/compression-real/cloud_openrouter.mjs --run      # real run, capped
  *   ... --models anthropic/claude-haiku-4.5,deepseek/deepseek-v4-flash --budget 0.5
+ *   ... --models qwen/qwen3.7-flash --redo   # discard that model's earlier results and run it again
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -31,6 +32,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const opt = (f, d) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : d);
 const RUN = argv.includes("--run");
+const REDO = argv.includes("--redo");
+// full | full_cached | v2 | v2_outline (v2 + outline of left-out headings with line numbers)
+const RUN_MODES = opt("--modes", "full,full_cached,v2,v2_outline").split(",");
 const BUDGET = Number(opt("--budget", "1.30"));
 const MODELS = opt(
   "--models",
@@ -42,6 +46,8 @@ const SYSTEM =
   "Answer the question using ONLY the provided context. If the context does not contain the answer, reply exactly: NOT FOUND. Reply in one short sentence.";
 const SEARCH_SYSTEM =
   "You are given a COMPRESSED excerpt of a longer document. The full document can be searched. Reply ONLY with 2-5 search terms (space-separated) most likely to find lines that answer the question. No other text.";
+const SEARCH_SYSTEM_OUTLINE =
+  "You are given a COMPRESSED excerpt of a longer document, ending with an outline of left-out sections and their line numbers. Reply ONLY with either a line range from that outline such as L120-L140 (preferred when a listed section looks relevant), or 2-5 search terms (space-separated). No other text.";
 
 const spec = JSON.parse(readFileSync(path.join(here, "questions.json"), "utf8"));
 const Q = {};
@@ -61,13 +67,15 @@ for (const m of MODELS) if (!price[m]) throw new Error(`unknown OpenRouter model
 // (reasoning models more), cached mode priced as uncached (upper bound).
 let estimate = 0;
 for (const m of MODELS) {
-  const outPer = /gpt-5|reason/.test(m) ? 800 : 150;
+  const outPer = 800; // many "flash" models reason before answering
+  const source = { full: "full", full_cached: "full", v2: "v2_aggressive", v2_outline: "v2_outline" };
   for (const id of qids) {
-    const inTok = (ctx(id, "full").tokens * 2 + ctx(id, "v2_aggressive").tokens) * 1.3 + 3 * 60;
-    estimate += inTok * price[m].in + 3 * outPer * price[m].out;
+    for (const mode of RUN_MODES) {
+      estimate += (ctx(id, source[mode]).tokens * 1.3 + 60) * price[m].in + outPer * price[m].out;
+    }
   }
 }
-console.log(`${MODELS.length} models x ${qids.length} questions x 3 modes (+ expand step on v2 misses).`);
+console.log(`${MODELS.length} models x ${qids.length} questions x ${RUN_MODES.length} modes [${RUN_MODES.join(", ")}] (+ expand step on compressed misses).`);
 console.log(`Estimated upper-bound cost: $${estimate.toFixed(2)} (budget cap $${BUDGET.toFixed(2)}).`);
 await main();
 
@@ -93,8 +101,10 @@ if (!/^sk-or-v1-[0-9a-f]{64}$/.test(KEY)) {
 
 let spent = 0;
 async function chat(model, messages) {
-  const body = { model, messages, temperature: 0, max_tokens: /gpt-5/.test(model) ? 2000 : 300, usage: { include: true } };
-  if (/gpt-5/.test(model)) body.reasoning = { effort: "low" };
+  // Many current "flash" models reason before answering; a small max_tokens is spent on hidden
+  // reasoning and the visible answer comes back empty (first run: qwen3.7-flash 82/96 empty,
+  // deepseek-v4-flash cut off at 300). Output is billed per token generated, not per cap.
+  const body = { model, messages, temperature: 0, max_tokens: 4000, reasoning: { effort: "low" }, usage: { include: true } };
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -115,6 +125,7 @@ async function chat(model, messages) {
     spent += u.cost ?? 0;
     return {
       text: j.choices?.[0]?.message?.content ?? "",
+      truncated: j.choices?.[0]?.finish_reason === "length",
       prompt_tokens: u.prompt_tokens ?? 0,
       cached_tokens: u.prompt_tokens_details?.cached_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
@@ -126,19 +137,25 @@ async function chat(model, messages) {
 const grade = (qid, text) => new RegExp(Q[qid].answer, "is").test(text) && !/NOT FOUND/i.test(text);
 
 // Resume: keep successful results only, so failed calls (e.g. a run with a bad key) are retried.
-const results = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")).results.filter((r) => !r.error) : [];
+const results = existsSync(OUT)
+  ? JSON.parse(readFileSync(OUT, "utf8")).results.filter((r) => !r.error && !(REDO && MODELS.includes(r.model)))
+  : [];
 const done = new Set(results.map((r) => `${r.model}|${r.question_id}|${r.mode}`));
 const save = () => writeFileSync(OUT, JSON.stringify({ generated_at: new Date().toISOString(), models: MODELS, results }, null, 1));
 
 outer: for (const model of MODELS) {
-  for (const mode of ["full", "full_cached", "v2"]) {
+  for (const mode of RUN_MODES) {
     for (const id of qids) {
       if (done.has(`${model}|${id}|${mode}`)) continue;
       if (spent >= BUDGET) break outer;
       const q = Q[id];
-      const c = mode === "v2" ? ctx(id, "v2_aggressive").context : ctx(id, "full").context;
+      const c = mode === "v2" ? ctx(id, "v2_aggressive").context : mode === "v2_outline" ? ctx(id, "v2_outline").context : ctx(id, "full").context;
       const user =
-        mode === "full_cached"
+        // Explicit cache_control only where the provider needs it (Anthropic, Gemini). Others
+        // (OpenAI, DeepSeek, Qwen...) cache repeated prefixes automatically, and the content-part
+        // form broke that on Qwen (first rerun: 0 cached tokens, 236% of full). For them
+        // full_cached is the same request as full.
+        mode === "full_cached" && /^(anthropic|google)\//.test(model)
           ? [
               { type: "text", text: `Context:\n${c}`, cache_control: { type: "ephemeral" } },
               { type: "text", text: `Question: ${q.q}` },
@@ -149,17 +166,22 @@ outer: for (const model of MODELS) {
         const entry = { model, question_id: id, corpus: q.corpusId, paraphrase: Boolean(q.paraphrase), mode, correct: grade(id, r.text), reply: r.text.slice(0, 300), ...r };
         results.push(entry);
 
-        if (mode === "v2" && !entry.correct && spent < BUDGET) {
-          const s1 = await chat(model, [{ role: "system", content: SEARCH_SYSTEM }, { role: "user", content: `Compressed excerpt:\n${c}\n\nQuestion: ${q.q}` }]);
-          const terms = s1.text.replace(/[^\p{L}\p{N}@./_ -]+/gu, " ").trim();
-          const found = queryLines(readFileSync(path.join(here, q.file), "utf8"), { pattern: terms, context_lines: 1, max_lines: 40 });
+        if ((mode === "v2" || mode === "v2_outline") && !entry.correct && spent < BUDGET) {
+          const system = mode === "v2_outline" ? SEARCH_SYSTEM_OUTLINE : SEARCH_SYSTEM;
+          const s1 = await chat(model, [{ role: "system", content: system }, { role: "user", content: `Compressed excerpt:\n${c}\n\nQuestion: ${q.q}` }]);
+          const range = mode === "v2_outline" ? s1.text.match(/L?(\d+)\s*[-–]\s*L?(\d+)/) : null;
+          const terms = range ? `lines ${range[1]}-${range[2]}` : s1.text.replace(/[^\p{L}\p{N}@./_ -]+/gu, " ").trim();
+          const original = readFileSync(path.join(here, q.file), "utf8");
+          const found = range
+            ? queryLines(original, { start_line: Number(range[1]), end_line: Math.min(Number(range[2]), Number(range[1]) + 40) })
+            : queryLines(original, { pattern: terms, context_lines: 1, max_lines: 40 });
           const retrieved = found.lines.map((l) => `${l.n}: ${l.text}`).join("\n");
           const s2 = await chat(model, [
             { role: "system", content: SYSTEM },
             { role: "user", content: `Context:\n${c}\n\nLines retrieved from the full document:\n${retrieved}\n\nQuestion: ${q.q}` },
           ]);
           results.push({
-            model, question_id: id, corpus: q.corpusId, paraphrase: Boolean(q.paraphrase), mode: "v2+expand",
+            model, question_id: id, corpus: q.corpusId, paraphrase: Boolean(q.paraphrase), mode: `${mode}+expand`,
             correct: grade(id, s2.text), reply: s2.text.slice(0, 300), search_terms: terms,
             evidence_retrieved: new RegExp(q.evidence).test(retrieved),
             prompt_tokens: r.prompt_tokens + s1.prompt_tokens + s2.prompt_tokens,
@@ -190,12 +212,14 @@ console.log(`\n\nTotal provider-reported spend: $${spent.toFixed(4)}${spent >= B
 const table = [];
 for (const model of MODELS) {
   const byMode = (m) => results.filter((r) => r.model === model && r.mode === m && !r.error);
-  const full = byMode("full"), cached = byMode("full_cached"), v2 = byMode("v2");
+  const full = byMode("full"), cached = byMode("full_cached"), v2 = byMode("v2"), v2o = byMode("v2_outline");
   const expandById = Object.fromEntries(byMode("v2+expand").map((r) => [r.question_id, r]));
+  const expandOById = Object.fromEntries(byMode("v2_outline+expand").map((r) => [r.question_id, r]));
+  const v2ox = v2o.map((r) => expandOById[r.question_id] ?? r);
   // "v2 with expand": v2 answer, replaced by the expand attempt where one was made.
   const v2x = v2.map((r) => expandById[r.question_id] ?? r);
   const sum = (a, k) => a.reduce((s, r) => s + (r[k] ?? 0), 0);
-  for (const [label, set] of [["full", full], ["full_cached", cached], ["v2", v2], ["v2 + expand on miss", v2x]]) {
+  for (const [label, set] of [["full", full], ["full_cached", cached], ["v2", v2], ["v2 + expand on miss", v2x], ["v2_outline", v2o], ["v2_outline + expand", v2ox]]) {
     if (!set.length) continue;
     table.push({
       model, mode: label,
@@ -205,6 +229,7 @@ for (const model of MODELS) {
       cached_tokens: sum(set, "cached_tokens"),
       usd: sum(set, "cost").toFixed(5),
       usd_vs_full: full.length ? `${Math.round((sum(set, "cost") / sum(full, "cost")) * 100)}%` : "-",
+      truncated: set.filter((r) => r.truncated).length,
     });
   }
 }

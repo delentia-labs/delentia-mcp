@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MODEL = process.argv[2] ?? "qwen2.5:7b";
 const OLLAMA = process.env.OLLAMA_URL ?? "http://localhost:11434";
-const MODES = ["full", "delta_aggressive", "v2_aggressive", "tail_matched"];
+const MODES = ["full", "delta_aggressive", "v2_aggressive", "v2_outline", "tail_matched"];
 
 const spec = JSON.parse(readFileSync(path.join(here, "questions.json"), "utf8"));
 const answerRe = {};

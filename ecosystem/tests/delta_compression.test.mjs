@@ -57,3 +57,15 @@ test("non-aggressive mode with an intent does not filter (dedup only)", () => {
   const r = compressContext({ raw_context: raw, intent_focus: "beta", aggressive_mode: false });
   assert.equal(body(r), "alpha line content\nbeta line content");
 });
+
+test("outline (opt-in): left-out headings are listed with their line numbers in the ORIGINAL text", () => {
+  const raw = ["# Setup", "", "install things here", "## Pricing", "", "The plan costs 29 USD a month", "## Ports", "server listens on 8787", "## Timeout", "timeout: 30"].join("\n");
+  const plain = compressContext({ raw_context: raw, intent_focus: "What is the timeout?", aggressive_mode: true });
+  assert.ok(!plain.compressed_delta_text.includes("[Left out"), "off by default");
+  const r = compressContext({ raw_context: raw, intent_focus: "What is the timeout?", aggressive_mode: true, outline: true });
+  const outline = [...r.compressed_delta_text.matchAll(/^L(\d+): (.*)$/gm)].map((m) => [Number(m[1]), m[2]]);
+  // Line numbers count the blank lines too, so they index straight into raw_context.
+  for (const [n, text] of outline) assert.equal(raw.split("\n")[n - 1].trim(), text);
+  // "## Timeout" and its neighbour "server listens on 8787" are kept; the other headings are listed.
+  assert.deepEqual(outline.map(([n]) => n), [1, 4, 7]);
+});

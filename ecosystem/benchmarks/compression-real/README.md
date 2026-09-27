@@ -27,6 +27,22 @@ then answered correctly for only 1/4 (twice it replied NOT FOUND with the answer
 at 35–52% of the full-context tokens. Paraphrased accuracy: 4/8 → 5/8 (full context: 7/8). Retrieval
 works; turning it into correct answers needs a stronger model than 7B — which is what a cloud run measures.
 
+**Outline of left-out sections (2026-09-27, `outline: true`, on by default with `retain_original` and
+in the guard):** compressed text ends with the headings it left out and their original line numbers,
+so a model can ask `expand_context` for a line range instead of guessing search terms (which failed
+on the Thai README when the model searched in English). Local qwen2.5:7b, same 24 questions:
+
+| Mode | Tokens (model) | Literal | Paraphrased |
+|---|---:|---:|---:|
+| full context | 5,996 | 16/16 | 7/8 |
+| v2 aggressive | 1,707 | 16/16 | 4/8 |
+| v2 + outline | 2,051 | 16/16 | 6/8 |
+| v2 + outline, expand by line range on the 2 misses | +27–61% of full for those 2 | 16/16 | **8/8** |
+
+The model picked the ranges itself (`L120-L140`, `L30-L35`). Cost of the outline: ~10–15% more
+tokens than plain v2 (reduction 70.8% -> 64.5% on the three corpora). A cloud rerun is prepared:
+`cloud_openrouter.mjs --modes v2_outline`.
+
 **Prompt caching vs. compression** (`caching_vs_compression_sim.mjs`, Claude Sonnet 5 list prices):
 
 | Workload | Winner |
@@ -44,22 +60,61 @@ today each cache miss costs 1 specialist + 3 verifier calls and no context is fo
 uses *more* tokens than a single call unless ~70–83% of requests are cache hits (with paid verifiers).
 Forwarding Delta-compressed context in the planned loop brings a context-heavy step to roughly −41% to −67%.
 
-## Cloud run (Claude) — ready, not yet run
+## Cloud run via OpenRouter (2026-09-27, $0.45 spent)
 
-`cloud_claude.mjs` sends the same contexts to real Claude models and records the provider's own
-numbers (`usage.input_tokens`, cache write/read, output) and USD at list price, including a
-`full_cached` row (full context with prompt caching, questions back-to-back) so compression is always
-compared against caching. No credentials exist on the machine this was built on, so it has not run yet.
+Same 24 real-data questions (16 literal, 8 paraphrased), four modes, provider-billed cost
+(`cloud_openrouter.mjs`, raw data in `results/cloud_openrouter.json`). Questions about each document
+were asked back-to-back, which is the **best case for prompt caching** (workload W1/W2 above).
 
-```bash
-# set ANTHROPIC_API_KEY yourself (or `ant auth login`) first
-npm run bench:cloud:claude                                   # dry run: request count + max cost, sends nothing
-npm run bench:cloud:claude -- --count                        # exact Claude token counts per mode
-npm run bench:cloud:claude -- --run --models claude-haiku-4-5,claude-sonnet-5
-```
+| Model | Mode | Literal | Paraphrased | Cost vs full |
+|---|---|---:|---:|---:|
+| Claude Haiku 4.5 | full | 16/16 | 8/8 | 100% ($0.182) |
+| | full + prompt caching | 16/16 | 6/8 | 35% |
+| | Delta v2 | 16/16 | 5/8 | **29%** |
+| | v2 + expand on miss | 16/16 | 5/8 | 36% |
+| Gemini 3.1 Flash-Lite | full | 16/16 | 7/8 | 100% ($0.040) |
+| | full + prompt caching | 16/16 | 7/8 | 37% |
+| | Delta v2 | 16/16 | 5/8 | **29%** |
+| | v2 + expand on miss | 16/16 | 5/8 | 35% |
+| GPT-5 mini | full | 16/16 | 8/8 | 100% ($0.013) |
+| | full + prompt caching | 16/16 | 8/8 | 75% |
+| | Delta v2 | 16/16 | 4/8 | 115% |
+| | v2 + expand on miss | 16/16 | **8/8** | 151% |
 
-Dry-run upper bound for the full grid (120 requests per model): Opus 5 ≤ $3.35, Sonnet 5 ≤ $1.34,
-Haiku 4.5 ≤ $0.67.
+What this shows:
+- **Delta v2 kept every literal-question answer on every model** (48/48), at 29% of the full-context
+  cost on the input-priced models — the local result holds on real cloud models.
+- In this caching-friendly workload, **prompt caching costs about the same (35–37%) and loses less**
+  on paraphrased questions. Compression's advantage is for context that isn't re-sent (fresh tool
+  output, sparse traffic), as the simulation above predicts.
+- On GPT-5 mini, compression **cost more** (115%): its bill is dominated by reasoning output tokens,
+  and the compressed context made it reason longer. Compression pays off on input-dominated bills.
+- `expand_context` recovers answers only when the model picks search terms that occur in the text.
+  GPT-5 mini searched the Thai README with Thai terms and recovered 4/4; Haiku and Gemini searched in
+  English and recovered 0/2 on the Thai document.
+- **DeepSeek V4 Flash and Qwen 3.7 Flash (rerun, $0.03, 0 truncated answers):**
+
+  | Model | Mode | Literal | Paraphrased | Cost vs full |
+  |---|---|---:|---:|---:|
+  | DeepSeek V4 Flash | full (provider caches automatically: 100k of 161k prompt tokens) | **11/16** | 5/8 | 100% ($0.0054) |
+  | | Delta v2 | **16/16** | 5/8 | **49%** |
+  | | v2 + expand on miss | 16/16 | 6/8 | 64% |
+  | Qwen 3.7 Flash | full (auto-cached: 121k of 151k) | 16/16 | 8/8 | 100% ($0.0033) |
+  | | Delta v2 | 16/16 | 5/8 | 119% |
+  | | v2 + expand on miss | 16/16 | 5/8 | 149% |
+
+  - DeepSeek answered NOT FOUND on 5 literal questions when given the full 7.5k-token source file,
+    and got all 16 from the compressed context: for this model, **removing noise raised accuracy**
+    while halving the cost.
+  - Qwen, like GPT-5 mini, costs more with compression: its full-context requests were already
+    ~80% served from the provider's automatic cache, and it reasoned longer on the compressed text
+    (20k vs 13k output tokens).
+  - Their `full_cached` rows are not meaningful: those providers cache automatically, and the
+    explicit `cache_control` content parts the harness sent disabled Qwen's caching (0 cached,
+    236%). The harness now sends `cache_control` only to Anthropic and Gemini models.
+
+Claude direct (`cloud_claude.mjs`, needs `ANTHROPIC_API_KEY`) is also available and adds exact
+`countTokens` numbers.
 
 ## Caveats
 
@@ -78,5 +133,5 @@ npm run bench:compression:qa         # local Ollama answers -> results/qa.json (
 node benchmarks/compression-real/report.mjs
 node benchmarks/compression-real/caching_vs_compression_sim.mjs
 npm run bench:intent-loop-cost
-node benchmarks/compression-real/qa_expand_ollama.mjs   # needs results/qa.json
+node benchmarks/compression-real/qa_expand_ollama.mjs [--mode v2_outline]   # needs results/qa.json
 ```

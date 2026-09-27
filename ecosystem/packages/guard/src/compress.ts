@@ -60,9 +60,11 @@ export class OutputCompressor {
     if (lines.length <= HEAD + TAIL + 5) return null; // one huge line (e.g. minified JSON): nothing to filter safely
 
     const middle = lines.slice(HEAD, lines.length - TAIL).join("\n");
-    const filtered = compressContext({ raw_context: middle, intent_focus: SIGNALS, aggressive_mode: true })
+    const filtered = compressContext({ raw_context: middle, intent_focus: SIGNALS, aggressive_mode: true, outline: true })
       .compressed_delta_text.split("\n")
-      .slice(1); // drop compress_context's header line
+      .slice(1) // drop compress_context's header line
+      // Outline line numbers are relative to `middle`; shift them to the original output.
+      .map((l) => l.replace(/^L(\d+): /, (_, n) => `L${Number(n) + HEAD}: `));
 
     const ref = randomUUID();
     this.remember(ref, text);

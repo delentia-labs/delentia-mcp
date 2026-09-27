@@ -12,7 +12,7 @@ const qaPath = path.join(here, "results", "qa.json");
 const qa = existsSync(qaPath) ? JSON.parse(readFileSync(qaPath, "utf8")) : null;
 const spec = JSON.parse(readFileSync(path.join(here, "questions.json"), "utf8"));
 
-const MODES = ["full", "delta_dedup", "delta_default", "delta_aggressive", "v2_dedup", "v2_aggressive", "tail_matched"];
+const MODES = ["full", "delta_dedup", "delta_default", "delta_aggressive", "v2_dedup", "v2_aggressive", "v2_outline", "tail_matched"];
 const MODE_LABEL = {
   full: "full context (baseline)",
   delta_dedup: "v1 dedup only (no intent_focus)",
@@ -20,6 +20,7 @@ const MODE_LABEL = {
   delta_aggressive: "v1 aggressive (intent_focus, aggressive=true)",
   v2_dedup: "v2 dedup only",
   v2_aggressive: "v2 aggressive",
+  v2_outline: "v2 aggressive + omitted-sections outline",
   tail_matched: "naive tail, same token budget as v1 aggressive",
 };
 const group = (r) => (r.corpus === "synthetic" ? "synthetic" : r.paraphrase ? "real, paraphrased" : "real, literal");

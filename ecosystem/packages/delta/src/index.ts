@@ -12,6 +12,10 @@ export const CompressContextInputSchema = z.object({
     .string()
     .optional()
     .describe("The specific goal or task that determines which details to retain (Intent-driven filtering)"),
+  outline: z
+    .boolean()
+    .optional()
+    .describe("When true (aggressive mode only), append an outline of the section headings that were left out, with their original line numbers, so a reader can ask for a line range"),
   aggressive_mode: z
     .boolean()
     .default(false)
@@ -58,21 +62,38 @@ export function focusKeywords(intent: string): string[] {
 /** Only lines with real content are deduplicated; short structural lines (`}`, `});`) are kept. */
 const isContentLine = (line: string) => line.length >= 12 && /[\p{L}\p{N}]{3,}/u.test(line);
 
+/**
+ * Lines that name a section: Markdown headings, top-level code declarations, npm script / CI group
+ * lines, test-file markers. Used for the omitted-sections outline (2026-09-27): cloud runs showed
+ * expand_context only recovers an answer when the model guesses search terms that occur in the
+ * text (English terms against a Thai README failed on 2 of 3 models). Headings with line numbers
+ * let it ask for a line range instead, whatever language it searches in.
+ */
+const HEADING_RE =
+  /^(#{1,6}\s|(export\s+)?(default\s+)?(async\s+)?(function|class|interface|type|enum|const\s+[A-Z][A-Z0-9_]+\s*=)\b|def\s|class\s|>\s\S|##\[group\]|▶|(PASS|FAIL)\s|={3,}|-{3,}\s*\S)/;
+const MAX_OUTLINE_ENTRIES = 40;
+
 export function compressContext(input: CompressContextInput): CompressionResult {
   const { raw_context, intent_focus, aggressive_mode } = input;
   const original_char_count = raw_context.length;
   const estimated_original_tokens = Math.ceil(original_char_count / 3.5);
 
-  const lines = raw_context.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  // Original 1-based line numbers are tracked so the outline can point back into raw_context.
+  const entries = raw_context
+    .split("\n")
+    .map((l, i) => ({ text: l.trim(), n: i + 1 }))
+    .filter((e) => e.text.length > 0);
   const seen = new Set<string>();
-  const deduplicatedLines: string[] = [];
-  for (const line of lines) {
-    if (isContentLine(line)) {
-      if (seen.has(line)) continue;
-      seen.add(line);
+  const deduplicated: Array<{ text: string; n: number }> = [];
+  for (const e of entries) {
+    if (isContentLine(e.text)) {
+      if (seen.has(e.text)) continue;
+      seen.add(e.text);
     }
-    deduplicatedLines.push(line);
+    deduplicated.push(e);
   }
+  const deduplicatedLines = deduplicated.map((e) => e.text);
+  let outlineText = "";
 
   let keyLines = deduplicatedLines;
   if (intent_focus && aggressive_mode) {
@@ -101,10 +122,18 @@ export function compressContext(input: CompressContextInput): CompressionResult 
     if (keyLines.length === 0) {
       keyLines = deduplicatedLines.slice(-10);
     }
+    if (input.outline) {
+      const omitted = deduplicated.filter((e, i) => !keep[i] && HEADING_RE.test(e.text));
+      if (omitted.length > 0) {
+        const shown = omitted.slice(0, MAX_OUTLINE_ENTRIES).map((e) => `L${e.n}: ${e.text.slice(0, 100)}`);
+        if (omitted.length > MAX_OUTLINE_ENTRIES) shown.push(`… ${omitted.length - MAX_OUTLINE_ENTRIES} more`);
+        outlineText = `\n[Left out — section headings with their line numbers in the original; request a line range to read one]\n${shown.join("\n")}`;
+      }
+    }
   }
 
   const deltaHeader = `[DELENTIA-DELTA-STREAM] Intent: "${intent_focus || "General"}" | State Diffs Only:`;
-  const compressedBody = keyLines.join("\n");
+  const compressedBody = keyLines.join("\n") + outlineText;
   const compressed_delta_text = `${deltaHeader}\n${compressedBody}`;
 
   const compressed_char_count = compressed_delta_text.length;
