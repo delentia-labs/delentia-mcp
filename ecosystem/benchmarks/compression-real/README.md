@@ -20,6 +20,13 @@ Everything here is reproducible from this folder. Numbers are in [REPORT.md](REP
   identifiers/terms in `intent_focus`.
 - The published "91.5%–99.4%" figure only holds for highly repetitive synthetic input.
 
+**Compress + retrieve (`retain_original` + `expand_context`, `qa_expand_ollama.mjs`):** for the 4
+questions v2 aggressive got wrong, the local model chose its own search terms and `expand_context`'s
+line search ran them on the retained original. The answer line was retrieved for 3/4, but qwen2.5:7b
+then answered correctly for only 1/4 (twice it replied NOT FOUND with the answer line in front of it),
+at 35–52% of the full-context tokens. Paraphrased accuracy: 4/8 → 5/8 (full context: 7/8). Retrieval
+works; turning it into correct answers needs a stronger model than 7B — which is what a cloud run measures.
+
 **Prompt caching vs. compression** (`caching_vs_compression_sim.mjs`, Claude Sonnet 5 list prices):
 
 | Workload | Winner |
@@ -54,4 +61,5 @@ npm run bench:compression:qa         # local Ollama answers -> results/qa.json (
 node benchmarks/compression-real/report.mjs
 node benchmarks/compression-real/caching_vs_compression_sim.mjs
 npm run bench:intent-loop-cost
+node benchmarks/compression-real/qa_expand_ollama.mjs   # needs results/qa.json
 ```

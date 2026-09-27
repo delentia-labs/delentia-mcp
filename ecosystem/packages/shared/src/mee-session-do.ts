@@ -1,3 +1,4 @@
+import { MAX_RETAINED_CHARS, queryLines, type ContextQuery } from "./context-store.js";
 import { MEEGrowthTracker, type MEEStepRecord, type MEEGrowthSummary, type MEEGrowthState } from "./mee-growth.js";
 
 /**
@@ -31,6 +32,7 @@ interface MEESessionData {
 
 const STORAGE_KEY = "mee_session";
 const POLICY_KEY = "fdia_session_policy";
+const CONTEXT_KEY = "retained_context";
 
 export class MEEGrowthSessionDO {
   private state: DurableObjectState;
@@ -114,6 +116,28 @@ export class MEEGrowthSessionDO {
         const policy = (await this.state.storage.get(POLICY_KEY)) ?? null;
         return new Response(JSON.stringify({ policy }), { headers: { "Content-Type": "application/json" } });
       }
+    }
+
+    // Retained original of a compress_context call (see context-store.ts). The worker
+    // addresses these DOs by a random, unguessable ref, never by a caller's session id.
+    if (url.pathname === "/context" && request.method === "PUT") {
+      const body: { text?: unknown } = await request.json();
+      if (typeof body.text !== "string" || body.text.length > MAX_RETAINED_CHARS) {
+        return new Response(JSON.stringify({ error: `text must be a string of at most ${MAX_RETAINED_CHARS} characters` }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      await this.state.storage.put(CONTEXT_KEY, body.text);
+      return new Response(JSON.stringify({ stored: true }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url.pathname === "/context/query" && request.method === "POST") {
+      const text = await this.state.storage.get<string>(CONTEXT_KEY);
+      if (typeof text !== "string") {
+        return new Response(JSON.stringify({ error: "unknown context_ref" }), { status: 404, headers: { "Content-Type": "application/json" } });
+      }
+      const query: ContextQuery = await request.json();
+      return new Response(JSON.stringify(queryLines(text, query)), { headers: { "Content-Type": "application/json" } });
     }
 
     if (request.method === "POST" && url.pathname === "/reset") {

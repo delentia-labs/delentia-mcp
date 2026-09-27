@@ -76,6 +76,18 @@ Only proceed if the result has "authorized": true. If not, stop and show the use
 
 `configure_policy` lets you register your own blocked patterns, per-role permissions and threshold. It **requires a `session_id`** (any id of yours except `default`): the policy is stored for that session only, so pass the same `session_id` to `evaluate_fdia` to be evaluated against it. Nobody can change the shared default policy through the API. See the tool's description in `tools/list` for the full schema.
 
+## 5. Shrink large tool output (optional)
+
+For big logs, test output or files your agent pulls in, compress **once, when the output arrives**, and keep the original retrievable:
+
+```json
+{"name":"compress_context","arguments":{"raw_context":"<the tool output>","intent_focus":"<exact identifiers/terms for the current task>","aggressive_mode":true,"retain_original":true}}
+```
+
+Put the returned `compressed_delta_text` into the conversation instead of the raw output. If something turns out to be missing, call `expand_context` with the returned `context_ref` and a `pattern` (or `start_line`/`end_line`) to fetch just those lines.
+
+Why "once, at ingestion": the result is deterministic and the history stays append-only, so your provider's prompt caching keeps working. Re-compressing the same text for every question changes the prompt prefix and defeats caching; for repeated questions about the same document, prompt caching alone is cheaper and lossless. Measured numbers: `benchmarks/compression-real/README.md`.
+
 ## Honest limits
 
 - The gate is only as good as the calls it receives: an agent that skips calling `evaluate_fdia` is not stopped. For hard enforcement, put the check inside your tool runner rather than only in the prompt.

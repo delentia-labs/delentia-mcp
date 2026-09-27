@@ -1,4 +1,4 @@
-import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, type ArchitectCustomPolicy } from "@delentia/shared";
+import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, MAX_RETAINED_CHARS, type ArchitectCustomPolicy, type ContextQuery } from "@delentia/shared";
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
@@ -115,7 +115,7 @@ export default {
             ecosystem: "Unified 4-Pillar Architecture",
             pillars: ["FDIA Security Gate", "RCT-7 Reasoning Engine", "Delta Context Compressor", "JITNA Swarm Orchestrator"],
             tools_count: 5,
-            tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"],
+            tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "expand_context", "orchestrate_swarm"],
             transports: {
               streamable_http: "/mcp",
               server_sent_events: "/sse",
@@ -173,7 +173,7 @@ export default {
                 id: "delentia-sovereign",
                 name: "Delentia Sovereign AI Ecosystem (All-in-One)",
                 transport: { type: "streamable-http", url: url.origin + "/mcp" },
-                tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"]
+                tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "expand_context", "orchestrate_swarm"]
               }
             ]
           }),
@@ -540,8 +540,29 @@ export default {
             aggressive_mode: args.aggressive_mode ?? false,
           };
           const result = compressContext(params);
+          // Optional: keep the original so dropped lines can be fetched later with expand_context.
+          let retained: { context_ref: string; original_line_count: number } | { retain_error: string } | undefined;
+          if (args.retain_original === true) {
+            if (!env.MEE_SESSION_DO) {
+              retained = { retain_error: "context retention is not available on this deployment" };
+            } else if (params.raw_context.length > MAX_RETAINED_CHARS) {
+              retained = { retain_error: `raw_context is longer than ${MAX_RETAINED_CHARS} characters; not retained` };
+            } else {
+              const context_ref = crypto.randomUUID();
+              const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(`ctx:${context_ref}`));
+              const put = await stub.fetch("http://mee/context", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: params.raw_context }),
+              });
+              retained = put.ok
+                ? { context_ref, original_line_count: params.raw_context.split("\n").length }
+                : { retain_error: "failed to store the original" };
+            }
+          }
           const outputResult = {
             ...result,
+            ...(retained ?? {}),
             _meta: tierMeta,
           };
           return new Response(
@@ -554,6 +575,37 @@ export default {
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
+        }
+
+        // ==========================================
+        // TOOL 4b: expand_context - fetch lines of a retained original
+        // ==========================================
+        if (body.method === "tools/call" && (body.params?.name === "expand_context" || body.tool === "expand_context")) {
+          const args = body.params?.arguments || body.params || body;
+          const ref = typeof args.context_ref === "string" ? args.context_ref.trim() : "";
+          const reply = (payload: unknown, isError = false) =>
+            new Response(
+              JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], ...(isError ? { isError: true } : {}) } }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          if (!/^[0-9a-f-]{36}$/i.test(ref) || !env.MEE_SESSION_DO) {
+            return reply({ status: "error", message: "context_ref must be the value returned by compress_context with retain_original: true" }, true);
+          }
+          const query: ContextQuery = {
+            pattern: typeof args.pattern === "string" ? args.pattern : undefined,
+            start_line: typeof args.start_line === "number" ? args.start_line : undefined,
+            end_line: typeof args.end_line === "number" ? args.end_line : undefined,
+            context_lines: typeof args.context_lines === "number" ? args.context_lines : undefined,
+            max_lines: typeof args.max_lines === "number" ? args.max_lines : undefined,
+          };
+          const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(`ctx:${ref}`));
+          const resp = await stub.fetch("http://mee/context/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(query),
+          });
+          if (resp.status === 404) return reply({ status: "error", message: "unknown context_ref" }, true);
+          return reply({ ...((await resp.json()) as object), _meta: tierMeta });
         }
 
         // ==========================================
@@ -781,6 +833,10 @@ export default {
                           type: "boolean",
                           description: "When true, strips conversational markers to retain only state changes.",
                         },
+                        retain_original: {
+                          type: "boolean",
+                          description: "When true, the original text (up to 1,000,000 characters) is stored and the result includes a `context_ref`; call expand_context with it to fetch any lines the compression dropped. Recommended with aggressive_mode, which can drop lines needed for questions phrased differently from the source.",
+                        },
                       },
                       required: ["raw_context"],
                     },
@@ -802,6 +858,23 @@ export default {
                       priority: 0.85,
                       readOnlyHint: true,
                     },
+                  },
+                  {
+                    name: "expand_context",
+                    description: "Fetches lines from an original that compress_context stored (retain_original: true). Use it when the compressed text is missing something you need: search by terms (`pattern`: any of the space-separated terms, case-insensitive, with `context_lines` of surrounding lines) or by `start_line`/`end_line`. Returns numbered lines, capped at `max_lines` (default 200, max 400). Much cheaper than re-sending the whole original.",
+                    inputSchema: {
+                      type: "object",
+                      properties: {
+                        context_ref: { type: "string", description: "The context_ref returned by compress_context." },
+                        pattern: { type: "string", description: "Space-separated terms; lines containing any of them are returned." },
+                        context_lines: { type: "number", description: "Lines of context around each match (default 1, max 10)." },
+                        start_line: { type: "number", description: "First line (1-based) of the range to search or return." },
+                        end_line: { type: "number", description: "Last line (inclusive)." },
+                        max_lines: { type: "number", description: "Maximum lines to return (default 200, max 400)." },
+                      },
+                      required: ["context_ref"],
+                    },
+                    annotations: { readOnlyHint: true },
                   },
                   {
                     name: "orchestrate_swarm",
