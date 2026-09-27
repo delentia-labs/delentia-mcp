@@ -1,0 +1,59 @@
+/**
+ * Behavioral tests for compressContext's filtering rules, each tied to a failure the
+ * real-data benchmark (benchmarks/compression-real/REPORT.md) actually showed.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import ts from "typescript";
+import { compressContext, focusKeywords } from "../packages/delta/dist/index.js";
+
+const body = (r) => r.compressed_delta_text.split("\n").slice(1).join("\n");
+
+test("dedup keeps short structural lines, so compressed code still parses", () => {
+  const code = [
+    "function a(x: number) {",
+    "  if (x > 1) {",
+    "    return x;",
+    "  }",
+    "}",
+    "function b(y: number) {",
+    "  if (y > 2) {",
+    "    return y;",
+    "  }",
+    "}",
+  ].join("\n");
+  const r = compressContext({ raw_context: code, aggressive_mode: false });
+  const sf = ts.createSourceFile("x.ts", body(r), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  assert.equal(sf.parseDiagnostics.length, 0, body(r));
+  // v1 kept only the first `}` of the whole input; all four must survive.
+  assert.equal(body(r).split("\n").filter((l) => l === "}").length, 4);
+});
+
+test("dedup still removes repeated content lines", () => {
+  const r = compressContext({ raw_context: "Heartbeat acknowledged OK\n".repeat(50) + "Deadlock detected on row 9401" });
+  assert.equal(body(r), "Heartbeat acknowledged OK\nDeadlock detected on row 9401");
+});
+
+test("question words are not keywords (they used to match nearly every line)", () => {
+  assert.deepEqual(focusKeywords("What is the default maxIntentLength?"), ["default", "maxintentlength"]);
+  assert.ok(!focusKeywords("which of these does the gate block").includes("the"));
+});
+
+test("aggressive mode keeps a matched line's neighbours and marks skipped gaps", () => {
+  const raw = ["noise one alpha", "config section header", "timeout: 30", "noise two beta", "noise three gamma", "noise four delta"].join("\n");
+  const r = compressContext({ raw_context: raw, intent_focus: "What is the timeout?", aggressive_mode: true });
+  assert.equal(body(r), "…\nconfig section header\ntimeout: 30\nnoise two beta");
+});
+
+test("aggressive mode with no match falls back to the last lines instead of returning nothing", () => {
+  const raw = Array.from({ length: 30 }, (_, i) => `unrelated line number ${i}`).join("\n");
+  const r = compressContext({ raw_context: raw, intent_focus: "kubernetes", aggressive_mode: true });
+  assert.equal(body(r).split("\n").length, 10);
+  assert.ok(body(r).endsWith("unrelated line number 29"));
+});
+
+test("non-aggressive mode with an intent does not filter (dedup only)", () => {
+  const raw = "alpha line content\nbeta line content\nalpha line content";
+  const r = compressContext({ raw_context: raw, intent_focus: "beta", aggressive_mode: false });
+  assert.equal(body(r), "alpha line content\nbeta line content");
+});
