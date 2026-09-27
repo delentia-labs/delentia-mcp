@@ -27,6 +27,22 @@ then answered correctly for only 1/4 (twice it replied NOT FOUND with the answer
 at 35–52% of the full-context tokens. Paraphrased accuracy: 4/8 → 5/8 (full context: 7/8). Retrieval
 works; turning it into correct answers needs a stronger model than 7B — which is what a cloud run measures.
 
+**Outline of left-out sections (2026-09-27, `outline: true`, on by default with `retain_original` and
+in the guard):** compressed text ends with the headings it left out and their original line numbers,
+so a model can ask `expand_context` for a line range instead of guessing search terms (which failed
+on the Thai README when the model searched in English). Local qwen2.5:7b, same 24 questions:
+
+| Mode | Tokens (model) | Literal | Paraphrased |
+|---|---:|---:|---:|
+| full context | 5,996 | 16/16 | 7/8 |
+| v2 aggressive | 1,707 | 16/16 | 4/8 |
+| v2 + outline | 2,051 | 16/16 | 6/8 |
+| v2 + outline, expand by line range on the 2 misses | +27–61% of full for those 2 | 16/16 | **8/8** |
+
+The model picked the ranges itself (`L120-L140`, `L30-L35`). Cost of the outline: ~10–15% more
+tokens than plain v2 (reduction 70.8% -> 64.5% on the three corpora). A cloud rerun is prepared:
+`cloud_openrouter.mjs --modes v2_outline`.
+
 **Prompt caching vs. compression** (`caching_vs_compression_sim.mjs`, Claude Sonnet 5 list prices):
 
 | Workload | Winner |
@@ -101,5 +117,5 @@ npm run bench:compression:qa         # local Ollama answers -> results/qa.json (
 node benchmarks/compression-real/report.mjs
 node benchmarks/compression-real/caching_vs_compression_sim.mjs
 npm run bench:intent-loop-cost
-node benchmarks/compression-real/qa_expand_ollama.mjs   # needs results/qa.json
+node benchmarks/compression-real/qa_expand_ollama.mjs [--mode v2_outline]   # needs results/qa.json
 ```

@@ -545,6 +545,9 @@ export default {
             raw_context: args.raw_context ?? "",
             intent_focus: args.intent_focus,
             aggressive_mode: args.aggressive_mode ?? false,
+            // With a retained original, list the left-out section headings so the caller can ask
+            // expand_context for a line range (works whatever language it would search in).
+            outline: args.outline ?? args.retain_original === true,
           };
           const result = compressContext(params);
           // Optional: keep the original so dropped lines can be fetched later with expand_context.
@@ -842,7 +845,11 @@ export default {
                         },
                         retain_original: {
                           type: "boolean",
-                          description: "When true, the original text (up to 1,000,000 characters) is stored and the result includes a `context_ref`; call expand_context with it to fetch any lines the compression dropped. Recommended with aggressive_mode, which can drop lines needed for questions phrased differently from the source.",
+                          description: "When true, the original text (up to 1,000,000 characters) is stored and the result includes a `context_ref`; call expand_context with it to fetch any lines the compression dropped. Recommended with aggressive_mode, which can drop lines needed for questions phrased differently from the source. Also turns on `outline` unless you set it.",
+                        },
+                        outline: {
+                          type: "boolean",
+                          description: "Append the headings of left-out sections with their line numbers in the original (aggressive mode). Useful with retain_original: request those line ranges from expand_context. Adds roughly 10% to the compressed size.",
                         },
                       },
                       required: ["raw_context"],

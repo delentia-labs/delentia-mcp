@@ -1,6 +1,6 @@
 # Context-compression benchmark (real data, reproducible)
 
-Generated 2026-09-27T03:56:33.587Z by `benchmarks/compression-real/report.mjs`. Tokenizer: tiktoken o200k_base.
+Generated 2026-09-27T08:53:40.666Z by `benchmarks/compression-real/report.mjs`. Tokenizer: tiktoken o200k_base.
 
 ## What is measured
 
@@ -24,6 +24,7 @@ Generated 2026-09-27T03:56:33.587Z by `benchmarks/compression-real/report.mjs`. 
 | real, literal | v1 aggressive (intent_focus, aggressive=true) | 73.3% | 16/16 (100%) |
 | real, literal | v2 dedup only | 6.2% | 16/16 (100%) |
 | real, literal | v2 aggressive | 69.5% | 16/16 (100%) |
+| real, literal | v2 aggressive + omitted-sections outline | 63.2% | 16/16 (100%) |
 | real, literal | naive tail, same token budget as v1 aggressive | 73.7% | 4/16 (25%) |
 | real, paraphrased | full context (baseline) | 0.0% | 8/8 (100%) |
 | real, paraphrased | v1 dedup only (no intent_focus) | 10.5% | 8/8 (100%) |
@@ -31,6 +32,7 @@ Generated 2026-09-27T03:56:33.587Z by `benchmarks/compression-real/report.mjs`. 
 | real, paraphrased | v1 aggressive (intent_focus, aggressive=true) | 74.4% | 3/8 (37.5%) |
 | real, paraphrased | v2 dedup only | 7.0% | 8/8 (100%) |
 | real, paraphrased | v2 aggressive | 73.4% | 5/8 (62.5%) |
+| real, paraphrased | v2 aggressive + omitted-sections outline | 67.0% | 7/8 (87.5%) |
 | real, paraphrased | naive tail, same token budget as v1 aggressive | 74.8% | 2/8 (25%) |
 | synthetic | full context (baseline) | 0.0% | 2/2 (100%) |
 | synthetic | v1 dedup only (no intent_focus) | 99.2% | 2/2 (100%) |
@@ -38,6 +40,7 @@ Generated 2026-09-27T03:56:33.587Z by `benchmarks/compression-real/report.mjs`. 
 | synthetic | v1 aggressive (intent_focus, aggressive=true) | 99.8% | 2/2 (100%) |
 | synthetic | v2 dedup only | 99.2% | 2/2 (100%) |
 | synthetic | v2 aggressive | 99.8% | 2/2 (100%) |
+| synthetic | v2 aggressive + omitted-sections outline | 99.8% | 2/2 (100%) |
 | synthetic | naive tail, same token budget as v1 aggressive | 99.8% | 0/2 (0%) |
 
 ### Per corpus (literal + paraphrased)
@@ -59,21 +62,24 @@ Generated 2026-09-27T03:56:33.587Z by `benchmarks/compression-real/report.mjs`. 
 | v1 aggressive (intent_focus, aggressive=true) | 260 |
 | v2 dedup only | 7 |
 | v2 aggressive | 167 |
+| v2 aggressive + omitted-sections outline | 195 |
 | naive tail, same token budget as v1 aggressive | 10 |
 
 ## 2. LLM answer accuracy (qwen2.5:7b, local Ollama, temperature 0)
 
-96 answered (question, mode) pairs.
+120 answered (question, mode) pairs.
 
 | Data | Mode | Correct | Mean prompt tokens (model tokenizer) |
 |---|---|---:|---:|
 | real, literal | full context (baseline) | 16/16 (100%) | 5,996 |
 | real, literal | v1 aggressive (intent_focus, aggressive=true) | 16/16 (100%) | 1,703 |
 | real, literal | v2 aggressive | 16/16 (100%) | 1,707 |
+| real, literal | v2 aggressive + omitted-sections outline | 16/16 (100%) | 2,051 |
 | real, literal | naive tail, same token budget as v1 aggressive | 3/16 (18.8%) | 1,664 |
 | real, paraphrased | full context (baseline) | 7/8 (87.5%) | 6,325 |
 | real, paraphrased | v1 aggressive (intent_focus, aggressive=true) | 3/8 (37.5%) | 1,818 |
 | real, paraphrased | v2 aggressive | 4/8 (50%) | 1,680 |
+| real, paraphrased | v2 aggressive + omitted-sections outline | 6/8 (75%) | 2,041 |
 | real, paraphrased | naive tail, same token budget as v1 aggressive | 2/8 (25%) | 1,776 |
 
 Raw replies: `results/qa.json`.

@@ -19,7 +19,9 @@ import { fileURLToPath } from "node:url";
 import { queryLines } from "../../packages/shared/dist/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const MODEL = process.argv[2] ?? "qwen2.5:7b";
+const args = process.argv.slice(2);
+const MODE = args.includes("--mode") ? args[args.indexOf("--mode") + 1] : "v2_aggressive";
+const MODEL = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--mode") ?? "qwen2.5:7b";
 const spec = JSON.parse(readFileSync(path.join(here, "questions.json"), "utf8"));
 const qa = JSON.parse(readFileSync(path.join(here, "results", "qa.json"), "utf8")).results;
 const { rows } = JSON.parse(readFileSync(path.join(here, "results", "variants.json"), "utf8"));
@@ -42,20 +44,24 @@ function chat(messages) {
 const countTokens = (texts) =>
   JSON.parse(spawnSync("python", [path.join(here, "count_tokens.py")], { input: JSON.stringify(texts), encoding: "utf8" }).stdout);
 
-const failed = qa.filter((r) => r.mode === "v2_aggressive" && !r.correct);
-console.log(`${failed.length} v2_aggressive answers were wrong; running the expand step for each`);
+const failed = qa.filter((r) => r.mode === MODE && !r.correct);
+console.log(`${failed.length} ${MODE} answers were wrong; running the expand step for each`);
 const out = [];
 for (const f of failed) {
   const q = questions[f.question_id];
-  const compressed = rows.find((r) => r.question_id === f.question_id && r.mode === "v2_aggressive").context;
+  const compressed = rows.find((r) => r.question_id === f.question_id && r.mode === MODE).context;
   const original = readFileSync(path.join(here, q.file), "utf8");
 
   const step1 = await chat([
-    { role: "system", content: "You are given a COMPRESSED excerpt of a longer document. The full document can be searched. Reply ONLY with 2-5 search terms (space-separated) most likely to find lines that answer the question. No other text." },
+    { role: "system", content: "You are given a COMPRESSED excerpt of a longer document. The full document can be searched. Reply ONLY with 2-5 search terms (space-separated) most likely to find lines that answer the question" + (MODE === "v2_outline" ? ", OR with a line range such as L120-L140 taken from the outline of left-out sections" : "") + ". No other text." },
     { role: "user", content: `Compressed excerpt:\n${compressed}\n\nQuestion: ${q.q}` },
   ]);
-  const terms = (step1.message?.content ?? "").replace(/[^\p{L}\p{N}@./_ -]+/gu, " ").trim();
-  const found = queryLines(original, { pattern: terms, context_lines: 1, max_lines: 40 });
+  const raw1 = step1.message?.content ?? "";
+  const range = raw1.match(/L?(\d+)\s*[-–]\s*L?(\d+)/);
+  const terms = range ? `lines ${range[1]}-${range[2]}` : raw1.replace(/[^\p{L}\p{N}@./_ -]+/gu, " ").trim();
+  const found = range
+    ? queryLines(original, { start_line: Number(range[1]), end_line: Math.min(Number(range[2]), Number(range[1]) + 40) })
+    : queryLines(original, { pattern: terms, context_lines: 1, max_lines: 40 });
   const retrieved = found.lines.map((l) => `${l.n}: ${l.text}`).join("\n");
 
   const step2 = await chat([
@@ -79,4 +85,4 @@ for (const f of failed) {
   out.push(entry);
   console.log(`${entry.question_id.padEnd(8)} terms="${terms}" lines=${entry.lines_retrieved} evidence=${entry.evidence_retrieved} ${entry.correct ? "OK " : "BAD"} tokens ${entry.total_vs_full_pct}% of full  ${reply.replace(/\s+/g, " ").slice(0, 70)}`);
 }
-writeFileSync(path.join(here, "results", "qa_expand.json"), JSON.stringify({ model: MODEL, results: out }, null, 1));
+writeFileSync(path.join(here, "results", MODE === "v2_aggressive" ? "qa_expand.json" : `qa_expand_${MODE}.json`), JSON.stringify({ model: MODEL, mode: MODE, results: out }, null, 1));
