@@ -10,6 +10,8 @@
 
 👉 **เริ่มใช้งานใน 5 นาที: [docs/QUICKSTART.md](docs/QUICKSTART.md)**
 
+🛡️ **บังคับใช้จริง (agent เลี่ยงไม่ได้): [docs/GUARD.md](docs/GUARD.md)** — ครอบ MCP server เดิมของคุณด้วย `delentia-guard` แล้วทุก tool call จะถูกตรวจก่อนถึง server พร้อม audit log แบบ hash-chain ทำงานในเครื่องทั้งหมด
+
 ---
 
 ## เครื่องมือ (MCP tools)

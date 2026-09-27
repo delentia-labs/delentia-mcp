@@ -1,7 +1,7 @@
 {
   "name": "@delentia/shared",
   "version": "1.2.0",
-  "description": "Core FDIA mathematical formulas, ZK boundary guards, and JITNA packet definitions for Delentia OS",
+  "description": "Core FDIA scoring and policy engine, session Durable Objects, and JITNA packet definitions for Delentia OS",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,7 +1,7 @@
 {
   "name": "@delentia/mcp-delta",
   "version": "1.1.0",
-  "description": "Delentia Delta Engine MCP Server — State Differential Context Compressor (74.2% - 91.5% token reduction)",
+  "description": "Delentia Delta Engine MCP Server: deterministic line-level context compression (measured ~70% fewer tokens in aggressive mode on real code/logs/docs; see benchmarks/compression-real)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
