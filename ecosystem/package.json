@@ -28,7 +28,7 @@
     "test:policy": "node tests/test_fdia_policy_engine.mjs",
     "test:fdia:hypothesis": "node tests/fdia_deep_hypothesis.test.mjs",
     "test:intent-loop": "node tests/intent_loop.test.mjs",
-  "test:intent-loop:mee": "node tests/intent_loop_mee_persistence.test.mjs",
+    "test:intent-loop:mee": "node tests/intent_loop_mee_persistence.test.mjs",
     "test:intent-loop:live": "node tests/intent_loop_live.test.mjs",
     "test:sovereign": "node tests/sovereign_rct7_synthesis.test.mjs",
     "test:fdia:worker": "node tests/fdia_worker_rct7_synthesis.test.mjs",
@@ -46,6 +46,7 @@
     "bench:compression": "node benchmarks/compression-real/run.mjs",
     "bench:compression:qa": "node benchmarks/compression-real/qa_ollama.mjs",
     "bench:caching-vs-compression": "node benchmarks/compression-real/caching_vs_compression_sim.mjs",
+    "bench:cloud:claude": "node benchmarks/compression-real/cloud_claude.mjs",
     "bench:intent-loop-cost": "node benchmarks/compression-real/intent_loop_cost_model.mjs",
     "test:benchmarks": "node tests/benchmark_fdia_vs.mjs && node tests/benchmark_rct7_vs.mjs && node tests/benchmark_delta_vs.mjs && node tests/stress_jitna_concurrency.mjs",
     "demo:vulnerable": "node scripts/demo_vulnerable_cli.mjs",
@@ -76,6 +77,7 @@
   "author": "Ittirit Saengow (The Architect) - Delentia Labs",
   "license": "UNLICENSED",
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@types/node": "^22.13.0",
     "typescript": "^5.7.3",
     "wrangler": "^3.109.2"

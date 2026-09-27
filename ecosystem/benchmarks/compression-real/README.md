@@ -44,6 +44,23 @@ today each cache miss costs 1 specialist + 3 verifier calls and no context is fo
 uses *more* tokens than a single call unless ~70–83% of requests are cache hits (with paid verifiers).
 Forwarding Delta-compressed context in the planned loop brings a context-heavy step to roughly −41% to −67%.
 
+## Cloud run (Claude) — ready, not yet run
+
+`cloud_claude.mjs` sends the same contexts to real Claude models and records the provider's own
+numbers (`usage.input_tokens`, cache write/read, output) and USD at list price, including a
+`full_cached` row (full context with prompt caching, questions back-to-back) so compression is always
+compared against caching. No credentials exist on the machine this was built on, so it has not run yet.
+
+```bash
+# set ANTHROPIC_API_KEY yourself (or `ant auth login`) first
+npm run bench:cloud:claude                                   # dry run: request count + max cost, sends nothing
+npm run bench:cloud:claude -- --count                        # exact Claude token counts per mode
+npm run bench:cloud:claude -- --run --models claude-haiku-4-5,claude-sonnet-5
+```
+
+Dry-run upper bound for the full grid (120 requests per model): Opus 5 ≤ $3.35, Sonnet 5 ≤ $1.34,
+Haiku 4.5 ≤ $0.67.
+
 ## Caveats
 
 - tiktoken `o200k_base` is OpenAI's tokenizer; Claude counts ~15–20% more tokens on typical text. Ratios
