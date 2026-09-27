@@ -27,3 +27,6 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# delentia-guard publish bundle (npm run bundle:guard)
+packages/guard/npm/

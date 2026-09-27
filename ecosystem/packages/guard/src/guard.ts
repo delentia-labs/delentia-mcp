@@ -16,6 +16,7 @@
 import { createHash } from "node:crypto";
 import { FDIAEngine, type FDIAEvaluationResult } from "@delentia/shared";
 import { OutputCompressor, EXPAND_TOOL, EXPAND_TOOL_NAME, type CompressOptions } from "./compress.js";
+import { ApprovalStore } from "./approvals.js";
 
 export type GuardMode = "enforce" | "monitor";
 
@@ -37,6 +38,8 @@ export interface GuardOptions {
   previousHash?: string;
   /** Compress large tool results and expose delentia_expand_context (off when omitted). */
   compress?: CompressOptions | false;
+  /** Directory for human-approval requests; omitted = approvals disabled (blocked calls stay blocked). */
+  approvalsDir?: string;
 }
 
 export interface JsonRpcMessage {
@@ -63,7 +66,8 @@ export class Guard {
   private engine: FDIAEngine;
   private mode: GuardMode;
   private lastHash: string;
-  readonly stats = { calls: 0, allowed: 0, blocked: 0, would_block: 0 };
+  readonly stats = { calls: 0, allowed: 0, blocked: 0, would_block: 0, human_approved: 0 };
+  readonly approvals?: ApprovalStore;
 
   readonly compressor?: OutputCompressor;
   /** Requests forwarded to the server whose responses we may need to rewrite, by JSON-RPC id. */
@@ -74,6 +78,13 @@ export class Guard {
     this.engine = new FDIAEngine(opts.policy);
     this.mode = opts.mode ?? "enforce";
     this.lastHash = opts.previousHash ?? GENESIS;
+    if (opts.approvalsDir) this.approvals = new ApprovalStore(opts.approvalsDir);
+  }
+
+  /** True when the rule that denied a call asks for a human rather than denying outright. */
+  private isHumanApprovable(ruleId: string): boolean {
+    const rule = this.engine.getPolicy().rules.find((r) => r.rule_id === ruleId);
+    return rule?.action_type === "REQUIRE_HUMAN_SIGNATURE";
   }
 
   /** Inspect one client -> server message. Anything that isn't tools/call is forwarded untouched. */
@@ -108,11 +119,18 @@ export class Guard {
     });
 
     this.stats.calls++;
-    const denied = !evaluation.authorized;
+    const callSha = sha256(`${tool}\n${payload}`);
+    const approvable = !evaluation.authorized && Boolean(this.approvals) && this.isHumanApprovable(evaluation.rule_triggered);
+    const approval = approvable && this.mode === "enforce" ? this.approvals!.consume(callSha) : undefined;
+    const denied = !evaluation.authorized && !approval;
     const blocked = denied && this.mode === "enforce";
-    if (blocked) this.stats.blocked++;
+    if (approval) this.stats.human_approved++;
+    else if (blocked) this.stats.blocked++;
     else if (denied) this.stats.would_block++;
     else this.stats.allowed++;
+    const pendingRequest = blocked && approvable
+      ? this.approvals!.request(callSha, { tool, rule: evaluation.rule_triggered, reason: evaluation.reason, arguments_preview: payload.slice(0, 300) })
+      : undefined;
 
     this.writeAudit({
       upstream: this.opts.upstreamName ?? "upstream",
@@ -120,7 +138,9 @@ export class Guard {
       tool,
       action,
       arguments_sha256: sha256(payload),
-      decision: blocked ? "blocked" : denied ? "would_block" : "allowed",
+      decision: approval ? "allowed_by_human" : blocked ? "blocked" : denied ? "would_block" : "allowed",
+      ...(approval ? { approval_id: approval.id, approved_at: approval.approved_at } : {}),
+      ...(pendingRequest ? { approval_requested: pendingRequest.id } : {}),
       verdict: evaluation.verdict,
       rule: evaluation.rule_triggered,
       reason: evaluation.reason,
@@ -147,7 +167,11 @@ export class Guard {
               text:
                 `Blocked by Delentia Guard before reaching the server: ${evaluation.reason} ` +
                 `(tool "${tool}", policy rule ${evaluation.rule_triggered || "default zero-trust"}, verdict ${evaluation.verdict}). ` +
-                `Do not retry this call in another form; ask the user if it is really needed.`,
+                (pendingRequest
+                  ? `This action needs a human. Tell the user what you want to do and why, and ask them to run ` +
+                    `\`delentia-guard approve ${pendingRequest.id}\` in their own terminal. After they confirm, repeat exactly the same call ` +
+                    `(same tool, same arguments) within 10 minutes. Do not run the approve command yourself and do not try the action another way.`
+                  : `Do not retry this call in another form; ask the user if it is really needed.`),
             },
           ],
         },
