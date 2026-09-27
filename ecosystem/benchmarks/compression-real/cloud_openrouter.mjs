@@ -21,6 +21,7 @@
  *   node benchmarks/compression-real/cloud_openrouter.mjs            # dry run
  *   node benchmarks/compression-real/cloud_openrouter.mjs --run      # real run, capped
  *   ... --models anthropic/claude-haiku-4.5,deepseek/deepseek-v4-flash --budget 0.5
+ *   ... --models qwen/qwen3.7-flash --redo   # discard that model's earlier results and run it again
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -31,6 +32,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const opt = (f, d) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : d);
 const RUN = argv.includes("--run");
+const REDO = argv.includes("--redo");
 const BUDGET = Number(opt("--budget", "1.30"));
 const MODELS = opt(
   "--models",
@@ -93,8 +95,10 @@ if (!/^sk-or-v1-[0-9a-f]{64}$/.test(KEY)) {
 
 let spent = 0;
 async function chat(model, messages) {
-  const body = { model, messages, temperature: 0, max_tokens: /gpt-5/.test(model) ? 2000 : 300, usage: { include: true } };
-  if (/gpt-5/.test(model)) body.reasoning = { effort: "low" };
+  // Many current "flash" models reason before answering; a small max_tokens is spent on hidden
+  // reasoning and the visible answer comes back empty (first run: qwen3.7-flash 82/96 empty,
+  // deepseek-v4-flash cut off at 300). Output is billed per token generated, not per cap.
+  const body = { model, messages, temperature: 0, max_tokens: 4000, reasoning: { effort: "low" }, usage: { include: true } };
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -115,6 +119,7 @@ async function chat(model, messages) {
     spent += u.cost ?? 0;
     return {
       text: j.choices?.[0]?.message?.content ?? "",
+      truncated: j.choices?.[0]?.finish_reason === "length",
       prompt_tokens: u.prompt_tokens ?? 0,
       cached_tokens: u.prompt_tokens_details?.cached_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
@@ -126,7 +131,9 @@ async function chat(model, messages) {
 const grade = (qid, text) => new RegExp(Q[qid].answer, "is").test(text) && !/NOT FOUND/i.test(text);
 
 // Resume: keep successful results only, so failed calls (e.g. a run with a bad key) are retried.
-const results = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")).results.filter((r) => !r.error) : [];
+const results = existsSync(OUT)
+  ? JSON.parse(readFileSync(OUT, "utf8")).results.filter((r) => !r.error && !(REDO && MODELS.includes(r.model)))
+  : [];
 const done = new Set(results.map((r) => `${r.model}|${r.question_id}|${r.mode}`));
 const save = () => writeFileSync(OUT, JSON.stringify({ generated_at: new Date().toISOString(), models: MODELS, results }, null, 1));
 
@@ -205,6 +212,7 @@ for (const model of MODELS) {
       cached_tokens: sum(set, "cached_tokens"),
       usd: sum(set, "cost").toFixed(5),
       usd_vs_full: full.length ? `${Math.round((sum(set, "cost") / sum(full, "cost")) * 100)}%` : "-",
+      truncated: set.filter((r) => r.truncated).length,
     });
   }
 }
