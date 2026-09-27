@@ -74,7 +74,7 @@ Only proceed if the result has "authorized": true. If not, stop and show the use
 
 ## 4. Your own rules
 
-`configure_policy` lets you register your own blocked patterns, per-role permissions and threshold (scoped per session/tenant). See the tool's description in `tools/list` for the full schema.
+`configure_policy` lets you register your own blocked patterns, per-role permissions and threshold. It **requires a `session_id`** (any id of yours except `default`): the policy is stored for that session only, so pass the same `session_id` to `evaluate_fdia` to be evaluated against it. Nobody can change the shared default policy through the API. See the tool's description in `tools/list` for the full schema.
 
 ## Honest limits
 

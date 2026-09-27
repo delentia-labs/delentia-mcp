@@ -95,23 +95,35 @@ test("fdia: a caller who supplies the SAME session_id on both calls genuinely re
   assert.equal(resultA.applied_policy_id, "tenant-a-strict-policy");
 });
 
-test("fdia: omitting session_id entirely on both calls reproduces the exact prior SHARED-default behavior (regression safety)", async () => {
+test("fdia: configure_policy WITHOUT a session_id is refused, so no anonymous caller can replace the shared default policy", async () => {
   const env = fdiaEnv();
 
-  const configured = await rpcCall(fdiaWorker, env, "configure_policy", {
-    policy_id: "legacy-shared-policy",
-    custom_safety_threshold: 0.7,
+  // Before 2026-09-27 this call succeeded and durably replaced the policy every
+  // caller without a session_id is evaluated against.
+  const request = new Request("http://worker.test/mcp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "configure_policy", arguments: { policy_id: "hijacked-shared-policy", custom_safety_threshold: 0.01 } } }),
   });
-  assert.equal(configured.success, true);
+  const body = await (await fdiaWorker.fetch(request, env, NOOP_CTX)).json();
+  assert.equal(body.result.isError, true);
+  assert.match(JSON.parse(body.result.content[0].text).message, /requires a session_id/);
 
-  // A second caller who ALSO omits session_id still hits the same shared
-  // default DO instance — this is the pre-existing, intentional
-  // shared-by-default behavior for callers who don't opt into isolation.
-  const result = await rpcCall(fdiaWorker, env, "evaluate_fdia", {
-    data_quality: 0.9,
-    action_name: "read_report",
-  });
-  assert.equal(result.applied_policy_id, "legacy-shared-policy");
+  // Callers without a session_id still read the (unchanged) shared default.
+  const result = await rpcCall(fdiaWorker, env, "evaluate_fdia", { data_quality: 0.9, action_name: "read_report" });
+  assert.notEqual(result.applied_policy_id, "hijacked-shared-policy");
+});
+
+test("fdia: POST /policy without ?session_id= is refused (400) and the shared default is unchanged", async () => {
+  const env = fdiaEnv();
+  const res = await fdiaWorker.fetch(
+    new Request("http://worker.test/policy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ policy_id: "hijacked-over-http" }) }),
+    env,
+    NOOP_CTX
+  );
+  assert.equal(res.status, 400);
+  const current = await (await fdiaWorker.fetch(new Request("http://worker.test/policy"), env, NOOP_CTX)).json();
+  assert.notEqual(current.policy_id, "hijacked-over-http");
 });
 
 test("fdia: the /policy HTTP route also honors an explicit ?session_id= query param for isolation", async () => {

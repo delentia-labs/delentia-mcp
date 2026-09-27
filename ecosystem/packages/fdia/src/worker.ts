@@ -127,6 +127,13 @@ async function getTrustedGatedVerifyingPublicKeyJwk(env: Env): Promise<JsonWebKe
   return (await crypto.subtle.exportKey("jwk", _cachedGatedVerifyingPublicKey)) as JsonWebKey;
 }
 
+/** A caller-chosen session id that is allowed to own a policy (never the shared default). */
+function isExplicitPolicySession(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  return v.length > 0 && v !== "default" && v !== "global_audit_session";
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -259,6 +266,15 @@ export default {
       // caller's DO instance; omitting it preserves the exact prior
       // shared-default behavior (backward compatible, opt-in only).
       if (url.pathname === "/policy") {
+        // Writes to the shared default policy are refused (2026-09-27): without this,
+        // any anonymous POST /policy replaced the policy every other caller is evaluated against.
+        const requestedSession = url.searchParams.get("session_id");
+        if (request.method !== "GET" && !isExplicitPolicySession(requestedSession)) {
+          return new Response(
+            JSON.stringify({ error: "Writing a policy requires ?session_id=<your id> (not \"default\"); the shared default policy cannot be changed over HTTP." }),
+            { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
         const policySessionId = resolveSessionDOName(
           { session_id: url.searchParams.get("session_id") },
           "global_audit_session"
@@ -356,6 +372,24 @@ export default {
         if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
 
+          // configure_policy must name a session (2026-09-27). Previously, omitting
+          // session_id wrote the shared "global_audit_session" DO that every caller
+          // without a session_id is evaluated against — any anonymous caller could
+          // durably replace everyone's policy.
+          if (!isExplicitPolicySession((policyData as Record<string, unknown>)?.session_id)) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ status: "error", message: "configure_policy requires a session_id (any non-empty string other than \"default\"). The policy then applies only to evaluate_fdia calls that pass the same session_id. The shared default policy cannot be changed through this tool. No state was changed." }, null, 2) }],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
+
           // Validate before touching the Durable Object or KV — previously
           // any object was forwarded and echoed back as-is with no schema
           // check, so an invalid policy could be "saved" and reported
@@ -397,16 +431,9 @@ export default {
             body: JSON.stringify(validatedPolicy),
           });
           const resultJson = await doResp.json();
-
-          // If Cloudflare KV is bound, persist directly for zero-redeploy real-time sync
-          const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
-          if (kv && typeof kv.put === "function") {
-            try {
-              await kv.put("fdia-policy", JSON.stringify(validatedPolicy));
-            } catch {
-              // Non-blocking in local dev
-            }
-          }
+          // (No longer mirrored to the global "fdia-policy" KV key: that key is the
+          // deployment-wide default read by every caller, so a per-session policy must
+          // never be written there.)
 
           return new Response(
             JSON.stringify({
@@ -711,10 +738,14 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Replaces the active authorization policy that evaluate_fdia checks against, persisted in a Durable Object session (durable across requests and isolates, unlike a plain in-memory variable). IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself first if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia instead) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
+                    description: "Sets the authorization policy that evaluate_fdia checks against FOR YOUR SESSION ONLY, persisted in that session's Durable Object. REQUIRES `session_id` (not \"default\"): the policy applies only to evaluate_fdia calls that pass the same session_id; callers without a session_id keep the deployment default, which this tool cannot change. IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself first if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia instead) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
                     inputSchema: {
                       type: "object",
                       properties: {
+                        session_id: {
+                          type: "string",
+                          description: "Required. Your own session/tenant id (not \"default\"). The policy applies only to evaluate_fdia calls that pass the same session_id.",
+                        },
                         policy_id: {
                           type: "string",
                           description: "Unique alphanumeric identifier for the enterprise policy configuration.",
@@ -742,7 +773,7 @@ export default {
                           description: "Array of critical action names that unconditionally require human dual signoff confirmation.",
                         },
                       },
-                      required: ["policy_id", "policy_name"],
+                      required: ["session_id", "policy_id", "policy_name"],
                     },
                     outputSchema: {
                       type: "object",

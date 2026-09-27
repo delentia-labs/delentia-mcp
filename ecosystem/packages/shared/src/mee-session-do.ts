@@ -30,6 +30,7 @@ interface MEESessionData {
 }
 
 const STORAGE_KEY = "mee_session";
+const POLICY_KEY = "fdia_session_policy";
 
 export class MEEGrowthSessionDO {
   private state: DurableObjectState;
@@ -98,6 +99,21 @@ export class MEEGrowthSessionDO {
         session_id: this.sessionId,
       };
       return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // Per-session FDIA policy (added 2026-09-27). One DO instance per session_id, so a
+    // policy written here is only ever read back by the same session — never by other
+    // callers. Stored under its own key, independent of the growth tracker.
+    if (url.pathname === "/policy") {
+      if (request.method === "PUT") {
+        const policy: unknown = await request.json();
+        await this.state.storage.put(POLICY_KEY, policy);
+        return new Response(JSON.stringify({ stored: true }), { headers: { "Content-Type": "application/json" } });
+      }
+      if (request.method === "GET") {
+        const policy = (await this.state.storage.get(POLICY_KEY)) ?? null;
+        return new Response(JSON.stringify({ policy }), { headers: { "Content-Type": "application/json" } });
+      }
     }
 
     if (request.method === "POST" && url.pathname === "/reset") {

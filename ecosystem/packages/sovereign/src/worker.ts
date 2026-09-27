@@ -50,8 +50,38 @@ async function stepMeeGrowth(
   }
 }
 
-// In-memory policy fallback
-let activePolicy: ArchitectCustomPolicy | undefined;
+/**
+ * Per-session FDIA policies (2026-09-27). Before this, configure_policy wrote one
+ * module-global `activePolicy`, so any anonymous caller could replace the policy that
+ * every other caller routed to the same isolate was evaluated against. Policies now live
+ * in the caller's own session Durable Object (MEE_SESSION_DO, keyed by session_id), and
+ * configure_policy refuses to run without a session_id. Callers that don't pass a
+ * session_id are always evaluated against the deployment's default policy.
+ */
+function sessionIdOf(args: unknown): string | undefined {
+  const sid = args && typeof args === "object" ? (args as Record<string, unknown>).session_id : undefined;
+  return typeof sid === "string" && sid.trim().length > 0 && sid.trim() !== "default" ? sid.trim() : undefined;
+}
+
+async function readSessionPolicy(env: Env, sessionId: string): Promise<ArchitectCustomPolicy | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(sessionId));
+  const resp = await stub.fetch("http://mee/policy");
+  if (!resp.ok) return undefined;
+  const body = (await resp.json()) as { policy: ArchitectCustomPolicy | null };
+  return body.policy ?? undefined;
+}
+
+async function writeSessionPolicy(env: Env, sessionId: string, policy: ArchitectCustomPolicy): Promise<boolean> {
+  if (!env.MEE_SESSION_DO) return false;
+  const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(sessionId));
+  const resp = await stub.fetch("http://mee/policy", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  return resp.ok;
+}
 
 // In-memory quota and rate-limit cache for Free Community Tier (50 calls/day per IP).
 // Best-effort only: the Map lives in one Worker isolate, so the count resets whenever the
@@ -319,9 +349,11 @@ export default {
         if (body.method === "tools/call" && (body.params?.name === "evaluate_fdia" || body.tool === "evaluate_fdia")) {
           const args = body.params?.arguments || body.params || body;
 
-          // Load policy from KV or Environment if no inline policy passed
-          const engine = activePolicy
-            ? new FDIAEngine(activePolicy)
+          // The caller's own session policy if it set one; otherwise the deployment default.
+          const evalSessionId = sessionIdOf(args);
+          const sessionPolicy = evalSessionId ? await readSessionPolicy(env, evalSessionId) : undefined;
+          const engine = sessionPolicy
+            ? new FDIAEngine(sessionPolicy)
             : await FDIAEngine.fromWorkersEnv(env);
 
           // Optional RCT-7 -> intent_precision synthesis (added 2026-09-12,
@@ -398,6 +430,20 @@ export default {
         // ==========================================
         if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
+          const policySessionId = sessionIdOf(policyData);
+          if (!policySessionId) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ status: "error", message: "configure_policy requires a session_id (any non-empty string other than \"default\"). Policies are scoped to that session: pass the same session_id to evaluate_fdia to be evaluated against it. The shared default policy cannot be changed through this tool. No state was changed.", _meta: tierMeta }, null, 2) }],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
 
           // Validate BEFORE mutating any state or reporting success. Previously
           // this endpoint accepted any object and echoed back "success" even
@@ -406,7 +452,7 @@ export default {
           // evaluate_fdia tried to use it — with no error surfaced to the
           // caller who thought their policy had taken effect.
           const validation = validatePolicy(policyData);
-          if (!validation.valid) {
+          if (!validation.valid || !validation.policy) {
             return new Response(
               JSON.stringify({
                 jsonrpc: "2.0",
@@ -429,16 +475,19 @@ export default {
             );
           }
 
-          activePolicy = validation.policy;
-
-          // If Cloudflare KV is bound, persist directly for zero-redeploy real-time sync
-          const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
-          if (kv && typeof kv.put === "function") {
-            try {
-              await kv.put("fdia-policy", JSON.stringify(activePolicy));
-            } catch {
-              // Non-blocking in local dev
-            }
+          const stored = await writeSessionPolicy(env, policySessionId, validation.policy);
+          if (!stored) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ status: "error", message: "Policy was valid but could not be stored (session storage unavailable). No state was changed.", _meta: tierMeta }, null, 2) }],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
           }
 
           return new Response(
@@ -446,7 +495,7 @@ export default {
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy validated, updated, and synchronized", policy: activePolicy, warnings: validation.warnings, _meta: tierMeta }, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify({ status: "success", message: `Policy validated and stored for session "${policySessionId}". Only evaluate_fdia calls that pass this session_id use it.`, session_id: policySessionId, policy: validation.policy, warnings: validation.warnings, _meta: tierMeta }, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -625,10 +674,14 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Replaces the active authorization policy that evaluate_fdia checks against. IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. Propagation is eventually consistent, not atomic: this worker's in-memory policy updates immediately, and is best-effort persisted to KV for other edge instances to pick up, so a request routed to a different isolate may briefly see the old policy. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself before changing it if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia) or reason about a task (use rct_think) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
+                    description: "Sets the authorization policy that evaluate_fdia checks against FOR YOUR SESSION ONLY. REQUIRES `session_id`: the policy is stored in that session's Durable Object and applies only to evaluate_fdia calls that pass the same session_id; other callers, and calls without a session_id, keep using the deployment's default policy (which this tool cannot change). IMPACT: this is a full REPLACE of your session's policy, not a merge — any rule you don't include is dropped, so resend the complete rule set. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself before changing it if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia) or reason about a task (use rct_think) — and avoid calling it speculatively per-request.",
                     inputSchema: {
                       type: "object",
                       properties: {
+                        session_id: {
+                          type: "string",
+                          description: "Required. Your own session/tenant id (not \"default\"). The policy applies only to evaluate_fdia calls that pass the same session_id.",
+                        },
                         policy_id: {
                           type: "string",
                           description: "Unique alphanumeric identifier for the policy configuration.",
@@ -656,7 +709,7 @@ export default {
                           description: "List of critical actions requiring secondary verification.",
                         },
                       },
-                      required: ["policy_id", "policy_name"],
+                      required: ["session_id", "policy_id", "policy_name"],
                     },
                     outputSchema: {
                       type: "object",
