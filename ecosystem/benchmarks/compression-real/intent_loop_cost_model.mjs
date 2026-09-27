@@ -23,6 +23,10 @@ const specialistSystem = src.match(/content: "(You are a specialist assistant[^"
 const verifierSystem = src.match(/'(You are a strict verifier[^']+)'/)[1];
 const verifierMaxOut = 250; // max_tokens passed to each verifier call in index.ts
 const VERIFIERS = (src.match(/const VERIFIER_MODELS = \[([^\]]+)\]/)[1].match(/"/g).length) / 2;
+// With ConsensusVerifier earlyStop (2026-09-27) only the smallest majority is asked first; the rest
+// are called only when their votes could still change the outcome. Assume the common case: the
+// first two agree. Pass --all-verifiers to model the old always-ask-everyone behaviour.
+const VERIFIERS_CALLED = process.argv.includes("--all-verifiers") ? VERIFIERS : Math.floor(VERIFIERS / 2) + 1;
 
 const r = spawnSync("python", [path.join(here, "count_tokens.py")], {
   input: JSON.stringify([specialistSystem, verifierSystem, "INTENT: \n\nOUTPUT: "]),
@@ -37,7 +41,7 @@ const CHAT_OVERHEAD = 8; // per message role/formatting tokens, approximate
  *          outWeight = price of an output token relative to an input token (provider-specific; scenario input)
  */
 function costs(w) {
-  const verifiers = w.noVerify ? 0 : VERIFIERS;
+  const verifiers = w.noVerify ? 0 : VERIFIERS_CALLED;
   const baseline = { in: w.intent + w.context + CHAT_OVERHEAD, out: w.answer };
   // NOTE: today's loop forwards only packet.intent to the specialist (no context). Scenarios with
   // context > 0 model the planned loop that also forwards (optionally compressed) context.
@@ -58,7 +62,7 @@ const scenarios = [
   { name: "F. same as D, verifiers skipped (no consensus)", intent: 60, context: 8000, answer: 300, verifierOut: 0, hit: 0, compression: 0.733, noVerify: true },
 ];
 
-console.log(`Real prompt sizes (tiktoken o200k): specialist system=${SPEC_SYS}, verifier system=${VER_SYS}, verifier frame=${VER_FRAME}, verifiers=${VERIFIERS}, verifier max_tokens=${verifierMaxOut}\n`);
+console.log(`Real prompt sizes (tiktoken o200k): specialist system=${SPEC_SYS}, verifier system=${VER_SYS}, verifier frame=${VER_FRAME}, verifiers=${VERIFIERS} (called per miss: ${VERIFIERS_CALLED}), verifier max_tokens=${verifierMaxOut}\n`);
 for (const outWeight of [1, 4]) {
   console.log(`--- output token weighted x${outWeight} vs input ---`);
   for (const s of scenarios) {
