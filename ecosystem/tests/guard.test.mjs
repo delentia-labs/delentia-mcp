@@ -34,7 +34,7 @@ test("default policy: reads allowed; writes to secrets, destructive and unregist
 
   assert.equal(g.inspect(call(4, "delete_file", { path: "README.md" })).forward, false);
   assert.equal(g.inspect(call(5, "launch_rockets", {})).forward, false, "unregistered tool -> zero-trust deny");
-  assert.deepEqual(g.stats, { calls: 5, allowed: 2, blocked: 3, would_block: 0 });
+  assert.deepEqual(g.stats, { calls: 5, allowed: 2, blocked: 3, would_block: 0, human_approved: 0 });
 });
 
 test("monitor mode forwards everything but records what it would have blocked", () => {
@@ -118,7 +118,7 @@ test("end to end: a blocked call never reaches the server; allowed calls do; aud
   const executed = path.join(dir, "executed.txt");
   const audit = path.join(dir, "audit.jsonl");
   writeFileSync(executed, "");
-  const r = await runGuard(["--audit", audit, "--", process.execPath, FAKE, executed], [
+  const r = await runGuard(["--audit", audit, "--approvals", path.join(dir, "approvals"), "--", process.execPath, FAKE, executed], [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
     call(2, "read_file", { path: "README.md" }),
     call(3, "delete_file", { path: "README.md" }),
@@ -143,7 +143,7 @@ test("end to end: --monitor forwards everything, and --verify reports the log", 
   const executed = path.join(dir, "executed.txt");
   const audit = path.join(dir, "audit.jsonl");
   writeFileSync(executed, "");
-  const r = await runGuard(["--monitor", "--audit", audit, "--", process.execPath, FAKE, executed], [call(1, "delete_file", { path: "x" })]);
+  const r = await runGuard(["--monitor", "--no-approvals", "--audit", audit, "--", process.execPath, FAKE, executed], [call(1, "delete_file", { path: "x" })]);
   assert.equal(r.code, 0, r.err);
   assert.equal(readFileSync(executed, "utf8").trim(), "delete_file");
   assert.match(r.err, /would block: 1/);

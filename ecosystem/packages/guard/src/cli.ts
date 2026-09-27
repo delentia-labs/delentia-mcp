@@ -4,6 +4,8 @@
  *
  *   delentia-guard [options] -- <server command> [server args...]
  *   delentia-guard --verify <audit.jsonl>
+ *   delentia-guard pending                 list approval requests
+ *   delentia-guard approve <id>            approve one blocked call (interactive terminal only)
  *
  * Options:
  *   --policy <file>          policy JSON (default: built-in policy)
@@ -14,6 +16,8 @@
  *   --name <name>            upstream name recorded in the audit log (default: the command)
  *   --compress               compress large tool results; adds the delentia_expand_context tool
  *   --compress-over <tokens> size threshold for --compress (default 2000 estimated tokens)
+ *   --approvals <dir>        where approval requests live (default: ~/.delentia/approvals)
+ *   --no-approvals           never offer human approval; human-signature rules just deny
  *   --compress-tools a,b*    tool-name patterns whose results may be compressed
  *                            (default: commands, tests, builds, lint, logs — never plain file reads)
  *
@@ -22,10 +26,26 @@
  * so they never corrupt the protocol stream on stdout.
  */
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Guard, lastAuditHash, verifyAuditLog, type JsonRpcMessage } from "./guard.js";
+import { ApprovalStore } from "./approvals.js";
+
+const DEFAULT_APPROVALS = path.join(homedir(), ".delentia", "approvals");
+
+/** `--policy coding-agent` resolves to the bundled policies/coding-agent.json; anything else is a path. */
+function resolvePolicy(value: string | undefined): string | undefined {
+  if (!value || /[\\/]/.test(value) || value.endsWith(".json")) return value;
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const dir of [path.join(here, "policies"), path.join(here, "..", "policies")]) {
+    const f = path.join(dir, `${value}.json`);
+    if (existsSync(f)) return f;
+  }
+  return value;
+}
 
 const argv = process.argv.slice(2);
 const log = (m: string) => process.stderr.write(`[delentia-guard] ${m}\n`);
@@ -40,8 +60,57 @@ if (argv[0] === "--verify") {
     process.stdout.write(JSON.stringify(r) + "\n");
     process.exitCode = r.ok ? 0 : 1;
   }
+} else if (argv[0] === "pending") {
+  const store = new ApprovalStore(argv[1] === "--approvals" && argv[2] ? argv[2] : DEFAULT_APPROVALS);
+  const now = Date.now();
+  const open = store.list().filter((r) => !r.used_at && Date.parse(r.expires_at) > now);
+  if (!open.length) process.stdout.write("No pending approval requests.\n");
+  for (const r of open) {
+    process.stdout.write(
+      `${r.id}  ${r.approved_at ? "APPROVED (waiting for the agent to retry)" : "waiting for you"}  ${r.tool}  rule ${r.rule}  expires ${r.expires_at}\n    args: ${r.arguments_preview}\n`
+    );
+  }
+} else if (argv[0] === "approve") {
+  void approve(argv[1], argv[2] === "--approvals" && argv[3] ? argv[3] : DEFAULT_APPROVALS);
 } else {
   run();
+}
+
+async function approve(id: string | undefined, dir: string): Promise<void> {
+  if (!id) {
+    log("usage: delentia-guard approve <id>   (see: delentia-guard pending)");
+    process.exitCode = 2;
+    return;
+  }
+  // An agent's shell tool is not an interactive terminal; a person at a keyboard is.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    log("approve must be run by a person in an interactive terminal. Nothing was approved.");
+    process.exitCode = 3;
+    return;
+  }
+  const store = new ApprovalStore(dir);
+  const r = store.get(id);
+  if (!r) {
+    log(`no approval request ${id} (see: delentia-guard pending)`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(`\nThe agent wants to run: ${r.tool}\n  arguments: ${r.arguments_preview}\n  blocked by rule ${r.rule}: ${r.reason}\n  expires: ${r.expires_at}\n\n`);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const typed = (await rl.question(`Type the tool name (${r.tool}) to approve this one call, anything else to cancel: `)).trim();
+  rl.close();
+  if (typed !== r.tool) {
+    process.stdout.write("Not approved.\n");
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    store.approve(id);
+    process.stdout.write(`Approved once. The agent can now repeat the same call within the expiry time.\n`);
+  } catch (err) {
+    log((err as Error).message);
+    process.exitCode = 1;
+  }
 }
 
 function run(): void {
@@ -64,7 +133,7 @@ function run(): void {
   }
 
   const guard = new Guard({
-    policy: opt("--policy"),
+    policy: resolvePolicy(opt("--policy")),
     mode: opts.includes("--monitor") ? "monitor" : "enforce",
     actionMap,
     callerRole: opt("--role"),
@@ -77,6 +146,7 @@ function run(): void {
           tools: opt("--compress-tools")?.split(",").map((t) => t.trim()).filter(Boolean),
         }
       : false,
+    approvalsDir: opts.includes("--no-approvals") ? undefined : path.resolve(opt("--approvals") ?? DEFAULT_APPROVALS),
   });
   log(`${opts.includes("--monitor") ? "monitoring" : "enforcing"} tool calls for: ${command} ${commandArgs.join(" ")} (audit: ${auditPath})`);
 
@@ -161,7 +231,7 @@ function run(): void {
   }
 
   child.on("exit", (code, signal) => {
-    log(`server exited (${signal ?? code}); tool calls: ${guard.stats.calls}, allowed: ${guard.stats.allowed}, blocked: ${guard.stats.blocked}, would block: ${guard.stats.would_block}`);
+    log(`server exited (${signal ?? code}); tool calls: ${guard.stats.calls}, allowed: ${guard.stats.allowed}, blocked: ${guard.stats.blocked}, would block: ${guard.stats.would_block}, approved by a human: ${guard.stats.human_approved}`);
     if (guard.compressor) {
       const c = guard.compressor.stats;
       log(`compressed ${c.results_compressed}/${c.results_seen} results, ~${c.tokens_in} -> ~${c.tokens_out} tokens, expands: ${c.expands}`);

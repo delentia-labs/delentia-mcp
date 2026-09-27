@@ -23,7 +23,9 @@ claude mcp add filesystem -- node <path-to-repo>/packages/guard/dist/cli.js --po
 Claude Desktop / Cursor: same idea in the JSON config — `command` becomes `node`, and `args` is
 `[".../packages/guard/dist/cli.js", "--policy", ".../coding-agent.json", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "."]`.
 
-(Until the package is published to npm, point at `packages/guard/dist/cli.js` after `npm run build`.)
+Once published, `npx -y delentia-guard --policy coding-agent -- <server command>` works anywhere;
+`--policy coding-agent` refers to the bundled starter policy. Until then, point at
+`packages/guard/dist/cli.js` after `npm run build`.
 
 ## Start in monitor mode
 
@@ -66,6 +68,28 @@ it never reaches the server.
 - The view is deterministic, so your conversation history stays append-only and your provider's
   prompt caching keeps working (see `benchmarks/compression-real/README.md`).
 
+## Human approval for "needs a human" rules
+
+Rules of type `REQUIRE_HUMAN_SIGNATURE` (in the starter policy: delete, drop, reset, push, merge,
+shell execution) don't just deny. The block message gives the agent a request id and tells it to ask
+you. You decide in your own terminal:
+
+```bash
+delentia-guard pending          # what is waiting, with the exact arguments
+delentia-guard approve 1a2b3c4d # shows the call again; type the tool name to confirm
+```
+
+The agent then repeats the same call and it goes through **once**.
+
+- An approval covers only that exact call (same tool, same arguments), is single use, and expires
+  after 10 minutes.
+- Unknown tools (zero-trust default) and writes to secrets are never approvable.
+- `approve` refuses to run without an interactive terminal, and asks you to type the tool name, so an
+  agent can't approve its own request through a shell tool. An agent that controls a real
+  pseudo-terminal could still type it: keep agents' shell access limited.
+- `--no-approvals` turns this off (those rules then simply deny); `--approvals <dir>` moves the
+  request files (default `~/.delentia/approvals`).
+
 ## Audit log
 
 Each decision is one JSON line with the tool, the rule, the verdict and a SHA-256 of the arguments
@@ -82,4 +106,14 @@ node packages/guard/dist/cli.js --verify ~/.delentia/guard-audit.jsonl
   servers are not.
 - Rules match tool names and a substring check of the arguments; they are not a sandbox. A `.env`
   rule also matches `.environment`. Keep destructive and shell tools blocked unless you need them.
-- Requests blocked with `REQUIRE_HUMAN_SIGNATURE` have no approval flow yet: they are simply denied.
+- Human approval relies on the agent not having an interactive terminal of its own (see below).
+
+## Publishing (maintainers)
+
+`npm run build && npm run bundle:guard` produces `packages/guard/npm/`: one bundled `cli.mjs`
+(the workspace packages it depends on are not on npm), the starter policy and this README. Check it
+with `npm pack --dry-run` inside that folder, then `npm publish` from there.
+
+Two decisions to make before the first publish: the license (`UNLICENSED` today, which means nobody
+else may legally use it), and whether shipping the bundled FDIA engine source publicly fits the IP
+policy (`.clinerules` section 4).

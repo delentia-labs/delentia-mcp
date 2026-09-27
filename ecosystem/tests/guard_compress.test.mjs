@@ -87,7 +87,7 @@ test("end to end through processes: --compress shrinks the real log and expand r
   const executed = path.join(dir, "executed.txt");
   writeFileSync(executed, "");
   const cli = path.join(here, "../packages/guard/dist/cli.js");
-  const p = spawn(process.execPath, [cli, "--compress", "--audit", path.join(dir, "a.jsonl"), "--policy", path.join(here, "../packages/guard/policies/coding-agent.json"), "--", process.execPath, path.join(here, "helpers/fake-mcp-server.mjs"), executed], {
+  const p = spawn(process.execPath, [cli, "--compress", "--no-approvals", "--audit", path.join(dir, "a.jsonl"), "--policy", path.join(here, "../packages/guard/policies/coding-agent.json"), "--", process.execPath, path.join(here, "helpers/fake-mcp-server.mjs"), executed], {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, FAKE_READ_ROOT: dir },
   });
