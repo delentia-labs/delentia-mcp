@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.delentia-labs/delentia-mcp",
   "title": "Delentia Sovereign AI Operating System",
-  "description": "Stop rogue tool calls & hallucinations. Deterministic guardrails, reasoning & context compression.",
+  "description": "Stop rogue AI-agent tool calls before they run: deterministic policy gate + audit digest.",
   "repository": {
     "url": "https://github.com/delentia-labs/delentia-mcp",
     "source": "github"

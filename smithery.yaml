@@ -2,7 +2,7 @@
 # https://smithery.ai/docs/config
 
 name: delentia-mcp
-description: Stop rogue tool calls & AI hallucinations. Deterministic mathematical guardrails (ZK-FDIA), 7-stage RCT-7 thinking, Delta compression, and JITNA swarm orchestration.
+description: Stop rogue AI-agent tool calls before they run. Deterministic policy gate (FDIA) with audit digest, 7-stage RCT-7 reasoning checklist, Delta context compression, and signed JITNA task packets.
 version: 2.0.0
 author: Ittirit Saengow (Chief Architect) - Delentia Labs <founder@delentia.com>
 homepage: https://delentia.com
