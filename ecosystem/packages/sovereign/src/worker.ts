@@ -1,4 +1,4 @@
-import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, type ArchitectCustomPolicy } from "@delentia/shared";
+import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, MAX_RETAINED_CHARS, type ArchitectCustomPolicy, type ContextQuery } from "@delentia/shared";
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
@@ -50,10 +50,42 @@ async function stepMeeGrowth(
   }
 }
 
-// In-memory policy fallback
-let activePolicy: ArchitectCustomPolicy | undefined;
+/**
+ * Per-session FDIA policies (2026-09-27). Before this, configure_policy wrote one
+ * module-global `activePolicy`, so any anonymous caller could replace the policy that
+ * every other caller routed to the same isolate was evaluated against. Policies now live
+ * in the caller's own session Durable Object (MEE_SESSION_DO, keyed by session_id), and
+ * configure_policy refuses to run without a session_id. Callers that don't pass a
+ * session_id are always evaluated against the deployment's default policy.
+ */
+function sessionIdOf(args: unknown): string | undefined {
+  const sid = args && typeof args === "object" ? (args as Record<string, unknown>).session_id : undefined;
+  return typeof sid === "string" && sid.trim().length > 0 && sid.trim() !== "default" ? sid.trim() : undefined;
+}
 
-// In-memory quota and rate-limit cache for Free Community Tier (50 calls/day per IP)
+async function readSessionPolicy(env: Env, sessionId: string): Promise<ArchitectCustomPolicy | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(sessionId));
+  const resp = await stub.fetch("http://mee/policy");
+  if (!resp.ok) return undefined;
+  const body = (await resp.json()) as { policy: ArchitectCustomPolicy | null };
+  return body.policy ?? undefined;
+}
+
+async function writeSessionPolicy(env: Env, sessionId: string, policy: ArchitectCustomPolicy): Promise<boolean> {
+  if (!env.MEE_SESSION_DO) return false;
+  const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(sessionId));
+  const resp = await stub.fetch("http://mee/policy", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  return resp.ok;
+}
+
+// In-memory quota and rate-limit cache for Free Community Tier (50 calls/day per IP).
+// Best-effort only: the Map lives in one Worker isolate, so the count resets whenever the
+// isolate is recycled and is not shared across edge locations.
 const freeUsageCache = new Map<string, number>();
 
 export default {
@@ -83,7 +115,7 @@ export default {
             ecosystem: "Unified 4-Pillar Architecture",
             pillars: ["FDIA Security Gate", "RCT-7 Reasoning Engine", "Delta Context Compressor", "JITNA Swarm Orchestrator"],
             tools_count: 5,
-            tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"],
+            tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "expand_context", "orchestrate_swarm"],
             transports: {
               streamable_http: "/mcp",
               server_sent_events: "/sse",
@@ -141,7 +173,7 @@ export default {
                 id: "delentia-sovereign",
                 name: "Delentia Sovereign AI Ecosystem (All-in-One)",
                 transport: { type: "streamable-http", url: url.origin + "/mcp" },
-                tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "orchestrate_swarm"]
+                tools: ["evaluate_fdia", "configure_policy", "rct_think", "compress_context", "expand_context", "orchestrate_swarm"]
               }
             ]
           }),
@@ -231,7 +263,7 @@ export default {
           if (isEnterprise) {
             tierMeta = {
               tier: "enterprise_unlimited",
-              quota: "unlimited_active (Enterprise Zuplo SLA 99.99%)",
+              quota: "unlimited_active (Zuplo API key)",
               portal: "https://delentia-gateway-main-c7624a5.zuplo.site",
               pricing: "https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
             };
@@ -247,7 +279,7 @@ export default {
                   id: body.id ?? null,
                   error: {
                     code: -32002,
-                    message: "Free Developer Sandbox quota exceeded (50/50 calls reached). To unlock unlimited enterprise access and sub-millisecond SLA, subscribe at: https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
+                    message: "Free Developer Sandbox quota exceeded (50/50 calls reached). For a higher quota, get an API key at: https://delentia-gateway-main-c7624a5.zuplo.site/pricing",
                     data: {
                       tier: "free_sandbox_expired",
                       limit: 50,
@@ -317,9 +349,11 @@ export default {
         if (body.method === "tools/call" && (body.params?.name === "evaluate_fdia" || body.tool === "evaluate_fdia")) {
           const args = body.params?.arguments || body.params || body;
 
-          // Load policy from KV or Environment if no inline policy passed
-          const engine = activePolicy
-            ? new FDIAEngine(activePolicy)
+          // The caller's own session policy if it set one; otherwise the deployment default.
+          const evalSessionId = sessionIdOf(args);
+          const sessionPolicy = evalSessionId ? await readSessionPolicy(env, evalSessionId) : undefined;
+          const engine = sessionPolicy
+            ? new FDIAEngine(sessionPolicy)
             : await FDIAEngine.fromWorkersEnv(env);
 
           // Optional RCT-7 -> intent_precision synthesis (added 2026-09-12,
@@ -396,6 +430,20 @@ export default {
         // ==========================================
         if (body.method === "tools/call" && (body.params?.name === "configure_policy" || body.tool === "configure_policy")) {
           const policyData = body.params?.arguments || body.params || body;
+          const policySessionId = sessionIdOf(policyData);
+          if (!policySessionId) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ status: "error", message: "configure_policy requires a session_id (any non-empty string other than \"default\"). Policies are scoped to that session: pass the same session_id to evaluate_fdia to be evaluated against it. The shared default policy cannot be changed through this tool. No state was changed.", _meta: tierMeta }, null, 2) }],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          }
 
           // Validate BEFORE mutating any state or reporting success. Previously
           // this endpoint accepted any object and echoed back "success" even
@@ -404,7 +452,7 @@ export default {
           // evaluate_fdia tried to use it — with no error surfaced to the
           // caller who thought their policy had taken effect.
           const validation = validatePolicy(policyData);
-          if (!validation.valid) {
+          if (!validation.valid || !validation.policy) {
             return new Response(
               JSON.stringify({
                 jsonrpc: "2.0",
@@ -427,16 +475,19 @@ export default {
             );
           }
 
-          activePolicy = validation.policy;
-
-          // If Cloudflare KV is bound, persist directly for zero-redeploy real-time sync
-          const kv = env.FDIA_POLICY_KV || env.POLICY_KV;
-          if (kv && typeof kv.put === "function") {
-            try {
-              await kv.put("fdia-policy", JSON.stringify(activePolicy));
-            } catch {
-              // Non-blocking in local dev
-            }
+          const stored = await writeSessionPolicy(env, policySessionId, validation.policy);
+          if (!stored) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                result: {
+                  content: [{ type: "text", text: JSON.stringify({ status: "error", message: "Policy was valid but could not be stored (session storage unavailable). No state was changed.", _meta: tierMeta }, null, 2) }],
+                  isError: true,
+                },
+              }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
           }
 
           return new Response(
@@ -444,7 +495,7 @@ export default {
               jsonrpc: "2.0",
               id: body.id ?? 1,
               result: {
-                content: [{ type: "text", text: JSON.stringify({ status: "success", message: "Policy validated, updated, and synchronized", policy: activePolicy, warnings: validation.warnings, _meta: tierMeta }, null, 2) }],
+                content: [{ type: "text", text: JSON.stringify({ status: "success", message: `Policy validated and stored for session "${policySessionId}". Only evaluate_fdia calls that pass this session_id use it.`, session_id: policySessionId, policy: validation.policy, warnings: validation.warnings, _meta: tierMeta }, null, 2) }],
               },
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
@@ -489,8 +540,29 @@ export default {
             aggressive_mode: args.aggressive_mode ?? false,
           };
           const result = compressContext(params);
+          // Optional: keep the original so dropped lines can be fetched later with expand_context.
+          let retained: { context_ref: string; original_line_count: number } | { retain_error: string } | undefined;
+          if (args.retain_original === true) {
+            if (!env.MEE_SESSION_DO) {
+              retained = { retain_error: "context retention is not available on this deployment" };
+            } else if (params.raw_context.length > MAX_RETAINED_CHARS) {
+              retained = { retain_error: `raw_context is longer than ${MAX_RETAINED_CHARS} characters; not retained` };
+            } else {
+              const context_ref = crypto.randomUUID();
+              const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(`ctx:${context_ref}`));
+              const put = await stub.fetch("http://mee/context", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: params.raw_context }),
+              });
+              retained = put.ok
+                ? { context_ref, original_line_count: params.raw_context.split("\n").length }
+                : { retain_error: "failed to store the original" };
+            }
+          }
           const outputResult = {
             ...result,
+            ...(retained ?? {}),
             _meta: tierMeta,
           };
           return new Response(
@@ -503,6 +575,37 @@ export default {
             }),
             { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
+        }
+
+        // ==========================================
+        // TOOL 4b: expand_context - fetch lines of a retained original
+        // ==========================================
+        if (body.method === "tools/call" && (body.params?.name === "expand_context" || body.tool === "expand_context")) {
+          const args = body.params?.arguments || body.params || body;
+          const ref = typeof args.context_ref === "string" ? args.context_ref.trim() : "";
+          const reply = (payload: unknown, isError = false) =>
+            new Response(
+              JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], ...(isError ? { isError: true } : {}) } }),
+              { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+            );
+          if (!/^[0-9a-f-]{36}$/i.test(ref) || !env.MEE_SESSION_DO) {
+            return reply({ status: "error", message: "context_ref must be the value returned by compress_context with retain_original: true" }, true);
+          }
+          const query: ContextQuery = {
+            pattern: typeof args.pattern === "string" ? args.pattern : undefined,
+            start_line: typeof args.start_line === "number" ? args.start_line : undefined,
+            end_line: typeof args.end_line === "number" ? args.end_line : undefined,
+            context_lines: typeof args.context_lines === "number" ? args.context_lines : undefined,
+            max_lines: typeof args.max_lines === "number" ? args.max_lines : undefined,
+          };
+          const stub = env.MEE_SESSION_DO.get(env.MEE_SESSION_DO.idFromName(`ctx:${ref}`));
+          const resp = await stub.fetch("http://mee/context/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(query),
+          });
+          if (resp.status === 404) return reply({ status: "error", message: "unknown context_ref" }, true);
+          return reply({ ...((await resp.json()) as object), _meta: tierMeta });
         }
 
         // ==========================================
@@ -623,10 +726,14 @@ export default {
                   },
                   {
                     name: "configure_policy",
-                    description: "Replaces the active authorization policy that evaluate_fdia checks against. IMPACT: this is a full REPLACE, not a merge — any existing rule you don't include in this call is dropped, so resend the complete rule set rather than a partial delta. Propagation is eventually consistent, not atomic: this worker's in-memory policy updates immediately, and is best-effort persisted to KV for other edge instances to pick up, so a request routed to a different isolate may briefly see the old policy. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself before changing it if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia) or reason about a task (use rct_think) — and avoid calling it speculatively per-request, since every call replaces shared state other callers depend on.",
+                    description: "Sets the authorization policy that evaluate_fdia checks against FOR YOUR SESSION ONLY. REQUIRES `session_id`: the policy is stored in that session's Durable Object and applies only to evaluate_fdia calls that pass the same session_id; other callers, and calls without a session_id, keep using the deployment's default policy (which this tool cannot change). IMPACT: this is a full REPLACE of your session's policy, not a merge — any rule you don't include is dropped, so resend the complete rule set. REVERSIBLE: yes — call configure_policy again with the previous policy JSON to roll back; no automatic version history is kept, so save the current policy yourself before changing it if you may need to undo. PARAMETER A: each rule assigns a binary authorization gate via `assigned_A` — A=1 lets matching actions proceed to normal F=(D^I)*A scoring, A=0 hard-blocks them regardless of data quality (this is how you make a category of actions always fail evaluate_fdia). USE WHEN: onboarding a new action type, changing RBAC/role rules, or adjusting the safety threshold. DO NOT USE WHEN: you only need to check one action (use evaluate_fdia) or reason about a task (use rct_think) — and avoid calling it speculatively per-request.",
                     inputSchema: {
                       type: "object",
                       properties: {
+                        session_id: {
+                          type: "string",
+                          description: "Required. Your own session/tenant id (not \"default\"). The policy applies only to evaluate_fdia calls that pass the same session_id.",
+                        },
                         policy_id: {
                           type: "string",
                           description: "Unique alphanumeric identifier for the policy configuration.",
@@ -654,7 +761,7 @@ export default {
                           description: "List of critical actions requiring secondary verification.",
                         },
                       },
-                      required: ["policy_id", "policy_name"],
+                      required: ["session_id", "policy_id", "policy_name"],
                     },
                     outputSchema: {
                       type: "object",
@@ -710,7 +817,7 @@ export default {
                   },
                   {
                     name: "compress_context",
-                    description: "Compresses verbose conversation history, logs, or codebase context by deduplicating repeated lines and, when `intent_focus` is provided, filtering to lines relevant to that intent. Token reduction is computed fresh per request from the actual input (highly variable — near-zero or even negative on already-short/unique input, higher on repetitive logs) — it is not a fixed guaranteed range. USE WHEN: context is large or repetitive and approaching a token budget; supply `intent_focus` for meaningfully better filtering — without it, only deduplication is applied. DO NOT USE WHEN: you need the content reasoned about (use rct_think) or expect true semantic summarization — this is line-level filtering, not an LLM rewrite, so it can drop details a summarizer would keep.",
+                    description: "Compresses verbose conversation history, logs, or codebase context by deduplicating repeated content lines and, when `aggressive_mode` is true and `intent_focus` is provided, keeping only lines that contain the intent's meaningful keywords (plus one line of context on each side; skipped gaps are marked with \"…\"). Token reduction is computed fresh per request from the actual input (highly variable — near-zero or even negative on already-short/unique input, higher on repetitive logs) — it is not a fixed guaranteed range. USE WHEN: context is large or repetitive and approaching a token budget; supply `intent_focus` AND `aggressive_mode: true` for real filtering — otherwise only deduplication is applied (measured ~6-12% on real code/logs/docs). Measured on real code/logs/docs (benchmarks/compression-real): aggressive mode cut ~70-75% of tokens and kept the answer line for 100% of questions that reuse the source's words, but only ~60% of paraphrased questions — use the exact identifiers/terms you are looking for in `intent_focus`. DO NOT USE WHEN: you need the content reasoned about (use rct_think) or expect true semantic summarization — this is line-level filtering, not an LLM rewrite, so it can drop details a summarizer would keep.",
                     inputSchema: {
                       type: "object",
                       properties: {
@@ -725,6 +832,10 @@ export default {
                         aggressive_mode: {
                           type: "boolean",
                           description: "When true, strips conversational markers to retain only state changes.",
+                        },
+                        retain_original: {
+                          type: "boolean",
+                          description: "When true, the original text (up to 1,000,000 characters) is stored and the result includes a `context_ref`; call expand_context with it to fetch any lines the compression dropped. Recommended with aggressive_mode, which can drop lines needed for questions phrased differently from the source.",
                         },
                       },
                       required: ["raw_context"],
@@ -747,6 +858,23 @@ export default {
                       priority: 0.85,
                       readOnlyHint: true,
                     },
+                  },
+                  {
+                    name: "expand_context",
+                    description: "Fetches lines from an original that compress_context stored (retain_original: true). Use it when the compressed text is missing something you need: search by terms (`pattern`: any of the space-separated terms, case-insensitive, with `context_lines` of surrounding lines) or by `start_line`/`end_line`. Returns numbered lines, capped at `max_lines` (default 200, max 400). Much cheaper than re-sending the whole original.",
+                    inputSchema: {
+                      type: "object",
+                      properties: {
+                        context_ref: { type: "string", description: "The context_ref returned by compress_context." },
+                        pattern: { type: "string", description: "Space-separated terms; lines containing any of them are returned." },
+                        context_lines: { type: "number", description: "Lines of context around each match (default 1, max 10)." },
+                        start_line: { type: "number", description: "First line (1-based) of the range to search or return." },
+                        end_line: { type: "number", description: "Last line (inclusive)." },
+                        max_lines: { type: "number", description: "Maximum lines to return (default 200, max 400)." },
+                      },
+                      required: ["context_ref"],
+                    },
+                    annotations: { readOnlyHint: true },
                   },
                   {
                     name: "orchestrate_swarm",

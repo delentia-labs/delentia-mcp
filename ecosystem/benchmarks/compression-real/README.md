@@ -1,0 +1,82 @@
+# Real-data benchmark: `compress_context`, prompt caching and the Intent Loop
+
+Everything here is reproducible from this folder. Numbers are in [REPORT.md](REPORT.md) (generated, not hand-typed).
+
+## Findings (2026-09-27)
+
+**Compression on real data (code, build/test log, README; tiktoken o200k):**
+
+| Mode | Token reduction | Answer line kept | Local LLM answered correctly (qwen2.5:7b) |
+|---|---:|---:|---:|
+| full context | 0% | 100% | literal 16/16, paraphrased 7/8 |
+| default (dedup only) | ~6–12% | 100% | – |
+| aggressive v1 | ~73% | literal 100%, paraphrased 37.5% | literal 16/16, paraphrased 3/8 |
+| **aggressive v2 (current)** | ~70–73% | literal 100%, paraphrased 62.5% | literal 16/16, paraphrased 4/8 |
+| naive tail, same budget | ~74% | ~25% | literal 3/16, paraphrased 2/8 |
+| synthetic haystack (source of the old "99%") | 99.8% | 100% | – |
+
+- Aggressive filtering is far better than truncation at the same budget, and loses nothing when the
+  question uses the source's own words. It **does** lose answers for paraphrased questions: put exact
+  identifiers/terms in `intent_focus`.
+- The published "91.5%–99.4%" figure only holds for highly repetitive synthetic input.
+
+**Compress + retrieve (`retain_original` + `expand_context`, `qa_expand_ollama.mjs`):** for the 4
+questions v2 aggressive got wrong, the local model chose its own search terms and `expand_context`'s
+line search ran them on the retained original. The answer line was retrieved for 3/4, but qwen2.5:7b
+then answered correctly for only 1/4 (twice it replied NOT FOUND with the answer line in front of it),
+at 35–52% of the full-context tokens. Paraphrased accuracy: 4/8 → 5/8 (full context: 7/8). Retrieval
+works; turning it into correct answers needs a stronger model than 7B — which is what a cloud run measures.
+
+**Prompt caching vs. compression** (`caching_vs_compression_sim.mjs`, Claude Sonnet 5 list prices):
+
+| Workload | Winner |
+|---|---|
+| Many questions about the same document within the cache TTL | prompt caching (−69%, lossless) |
+| One-shot fresh log / tool output | compression (−62%; caching costs +24%) |
+| Same document, requests spread beyond the TTL | compression (−49%; caching costs +22%) |
+| Agent loop, 20 turns of 3k-token tool outputs | **both**: compress each tool output once at ingestion, then cache the append-only history: −87% vs −76% caching alone, context 29.8k vs 73.6k tokens |
+
+Compressing *per question* changes the prompt prefix every time and defeats caching; compress **once, at
+ingestion**, so the history stays append-only.
+
+**Intent Loop token cost** (`intent_loop_cost_model.mjs`, real prompts from `packages/intent-loop`):
+today each cache miss costs 1 specialist + 3 verifier calls and no context is forwarded, so the loop
+uses *more* tokens than a single call unless ~70–83% of requests are cache hits (with paid verifiers).
+Forwarding Delta-compressed context in the planned loop brings a context-heavy step to roughly −41% to −67%.
+
+## Cloud run (Claude) — ready, not yet run
+
+`cloud_claude.mjs` sends the same contexts to real Claude models and records the provider's own
+numbers (`usage.input_tokens`, cache write/read, output) and USD at list price, including a
+`full_cached` row (full context with prompt caching, questions back-to-back) so compression is always
+compared against caching. No credentials exist on the machine this was built on, so it has not run yet.
+
+```bash
+# set ANTHROPIC_API_KEY yourself (or `ant auth login`) first
+npm run bench:cloud:claude                                   # dry run: request count + max cost, sends nothing
+npm run bench:cloud:claude -- --count                        # exact Claude token counts per mode
+npm run bench:cloud:claude -- --run --models claude-haiku-4-5,claude-sonnet-5
+```
+
+Dry-run upper bound for the full grid (120 requests per model): Opus 5 ≤ $3.35, Sonnet 5 ≤ $1.34,
+Haiku 4.5 ≤ $0.67.
+
+## Caveats
+
+- tiktoken `o200k_base` is OpenAI's tokenizer; Claude counts ~15–20% more tokens on typical text. Ratios
+  are comparable, absolute counts are not — use the provider's own token-count endpoint for billing numbers.
+- 32 questions over 3 corpora is a small set; paraphrase results in particular have wide error bars.
+- The local-model latencies in `results/qa.json` are **not** a speed benchmark: Ollama reuses the KV cache of a
+  repeated prompt prefix (local prompt caching), and another process shared the model during the run.
+
+## Reproduce
+
+```bash
+npm run build && pip install tiktoken
+npm run bench:compression            # token reduction + evidence retention -> results/variants.json
+npm run bench:compression:qa         # local Ollama answers -> results/qa.json (slow on CPU)
+node benchmarks/compression-real/report.mjs
+node benchmarks/compression-real/caching_vs_compression_sim.mjs
+npm run bench:intent-loop-cost
+node benchmarks/compression-real/qa_expand_ollama.mjs   # needs results/qa.json
+```

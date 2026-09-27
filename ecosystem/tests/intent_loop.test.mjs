@@ -238,8 +238,11 @@ test("IntentLoopEngine: full happy path — gate passes, cache misses, executes,
   assert.equal(first.state, "completed");
   assert.equal(first.cache_hit, false);
   assert.ok(first.verification.passed);
-  assert.equal(first.verification.confidence, 1, "3/3 real YES votes must compute to exactly 1.0 confidence");
-  assert.equal(first.verification.votes.length, 3);
+  assert.equal(first.verification.confidence, 1, "unanimous real YES votes must compute to exactly 1.0 confidence");
+  // The first two verifiers agreed, so the third could not change the outcome and was not
+  // called (ConsensusVerifier earlyStop, 2026-09-27) — one model call saved.
+  assert.equal(first.verification.votes.length, 2);
+  assert.equal(first.verification.skipped_models.length, 1);
 
   const second = await engine.process(packet);
   assert.equal(second.state, "completed");

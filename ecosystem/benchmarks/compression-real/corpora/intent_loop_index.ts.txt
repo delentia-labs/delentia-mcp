@@ -90,8 +90,6 @@ export interface VerificationResult {
   passed: boolean;
   confidence: number;
   votes: Array<{ model: string; agree: boolean | null; reasoning?: string; error?: string }>;
-  /** Verifiers not asked because the outcome was already decided (ConsensusVerifier earlyStop). */
-  skipped_models?: string[];
 }
 
 export interface IntentResult {
@@ -476,35 +474,11 @@ export class SpecialistExecutor {
 
 const VERIFIER_MODELS = ["liquid/lfm-2.5-2.6b:free", "inclusionai/ling-3.0-flash-vl:free", "cohere/north-mini-code:free"];
 
-/**
- * True when the pass/fail outcome can no longer change, whatever the `remaining` verifiers
- * answer (each may say yes, say no, or fail and cast no vote). Enumerates every possibility,
- * so it is exact for any threshold, not only the default 0.5.
- */
-export function consensusDecided(agree: number, answered: number, remaining: number, threshold: number): boolean {
-  const passes = (a: number, n: number) => n > 0 && a / n >= threshold;
-  const first = passes(agree, answered);
-  for (let yes = 0; yes <= remaining; yes++) {
-    for (let no = 0; yes + no <= remaining; no++) {
-      if (passes(agree + yes, answered + yes + no) !== first) return false;
-    }
-  }
-  return true;
-}
-
 export class ConsensusVerifier {
   constructor(
     private openRouter: OpenRouterConfig,
     private consensusThreshold = 0.5, // >50% of models that actually responded must agree
-    private models: string[] = VERIFIER_MODELS,
-    /**
-     * Ask the smallest majority first and only call the remaining verifiers when their votes
-     * could still change pass/fail (added 2026-09-27). With 3 verifiers this saves one model
-     * call whenever the first two agree, and never changes `passed`. `confidence` is then the
-     * share over the votes actually cast (e.g. 2/2 instead of 2/3). Pass false for the old
-     * always-ask-everyone behaviour.
-     */
-    private earlyStop = true
+    private models: string[] = VERIFIER_MODELS
   ) {}
 
   /**
@@ -516,16 +490,43 @@ export class ConsensusVerifier {
    * safe failure mode for a verification gate.
    */
   async verify(intent: string, output: string): Promise<VerificationResult> {
-    const firstBatch = this.earlyStop ? Math.floor(this.models.length / 2) + 1 : this.models.length;
-    const calls = await Promise.all(this.models.slice(0, firstBatch).map((model) => this.vote(model, intent, output)));
-    for (const model of this.models.slice(firstBatch)) {
-      const answeredSoFar = calls.filter((c) => c.agree !== null);
-      const agreeSoFar = answeredSoFar.filter((c) => c.agree === true).length;
-      const remaining = this.models.length - calls.length;
-      if (consensusDecided(agreeSoFar, answeredSoFar.length, remaining, this.consensusThreshold)) break;
-      calls.push(await this.vote(model, intent, output));
-    }
-    const skipped = this.models.slice(calls.length);
+    const calls = await Promise.all(
+      this.models.map(async (model) => {
+        const call = await callOpenRouter(
+          this.openRouter,
+          model,
+          [
+            {
+              role: "system",
+              content:
+                'You are a strict verifier. Does the OUTPUT plausibly and safely address the INTENT? Reply NO if the output is empty, off-topic, or nonsensical. End your reply with a final line containing ONLY the single word YES or NO.',
+            },
+            { role: "user", content: `INTENT: ${intent}\n\nOUTPUT: ${output || "(empty)"}` },
+          ],
+          // Several free-tier models are reasoning models that spend their
+          // token budget on an invisible "thinking" pass before the visible
+          // answer (confirmed directly: a 20-token budget hit finish_reason
+          // "length" with zero visible content on 2/3 verifier models during
+          // the first live run of this loop on 2026-09-12, which made every
+          // verification vote fail with "empty response" instead of a real
+          // yes/no). 250 gives room for both the reasoning and the answer.
+          250
+        );
+        if (!call.ok || !call.content) {
+          return { model, agree: null as boolean | null, error: call.error };
+        }
+        // Reasoning models often restate both words while thinking (e.g. "the
+        // user wants X, this is not a NO, so..."); take the LAST standalone
+        // yes/no token in the reply, not "does the text merely contain yes".
+        const matches = [...call.content.matchAll(/\b(yes|no)\b/gi)];
+        const lastAnswer = matches.length > 0 ? matches[matches.length - 1][1].toLowerCase() : null;
+        if (!lastAnswer) {
+          return { model, agree: null as boolean | null, error: "no yes/no answer found in response", reasoning: call.content.trim().slice(0, 200) };
+        }
+        const agree = lastAnswer === "yes";
+        return { model, agree, reasoning: call.content.trim().slice(0, 200) };
+      })
+    );
 
     const answered = calls.filter((c) => c.agree !== null);
     const agreeCount = answered.filter((c) => c.agree === true).length;
@@ -534,43 +535,7 @@ export class ConsensusVerifier {
     // cannot pass regardless of threshold math (0/0 must not read as "0 >= 0").
     const passed = answered.length > 0 && confidence >= this.consensusThreshold;
 
-    return { passed, confidence, votes: calls, ...(skipped.length ? { skipped_models: skipped } : {}) };
-  }
-
-  private async vote(model: string, intent: string, output: string): Promise<VerificationResult["votes"][number]> {
-    const call = await callOpenRouter(
-      this.openRouter,
-      model,
-      [
-        {
-          role: "system",
-          content:
-            'You are a strict verifier. Does the OUTPUT plausibly and safely address the INTENT? Reply NO if the output is empty, off-topic, or nonsensical. End your reply with a final line containing ONLY the single word YES or NO.',
-        },
-        { role: "user", content: `INTENT: ${intent}\n\nOUTPUT: ${output || "(empty)"}` },
-      ],
-      // Several free-tier models are reasoning models that spend their
-      // token budget on an invisible "thinking" pass before the visible
-      // answer (confirmed directly: a 20-token budget hit finish_reason
-      // "length" with zero visible content on 2/3 verifier models during
-      // the first live run of this loop on 2026-09-12, which made every
-      // verification vote fail with "empty response" instead of a real
-      // yes/no). 250 gives room for both the reasoning and the answer.
-      250
-    );
-    if (!call.ok || !call.content) {
-      return { model, agree: null as boolean | null, error: call.error };
-    }
-    // Reasoning models often restate both words while thinking (e.g. "the
-    // user wants X, this is not a NO, so..."); take the LAST standalone
-    // yes/no token in the reply, not "does the text merely contain yes".
-    const matches = [...call.content.matchAll(/\b(yes|no)\b/gi)];
-    const lastAnswer = matches.length > 0 ? matches[matches.length - 1][1].toLowerCase() : null;
-    if (!lastAnswer) {
-      return { model, agree: null as boolean | null, error: "no yes/no answer found in response", reasoning: call.content.trim().slice(0, 200) };
-    }
-    const agree = lastAnswer === "yes";
-    return { model, agree: agree as boolean | null, reasoning: call.content.trim().slice(0, 200) };
+    return { passed, confidence, votes: calls };
   }
 }
 
