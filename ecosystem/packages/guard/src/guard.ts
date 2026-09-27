@@ -15,6 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { FDIAEngine, type FDIAEvaluationResult } from "@delentia/shared";
+import { OutputCompressor, EXPAND_TOOL, EXPAND_TOOL_NAME, type CompressOptions } from "./compress.js";
 
 export type GuardMode = "enforce" | "monitor";
 
@@ -34,6 +35,8 @@ export interface GuardOptions {
   audit?: (line: string) => void;
   /** Last hash of an existing audit log, to continue its chain. */
   previousHash?: string;
+  /** Compress large tool results and expose delentia_expand_context (off when omitted). */
+  compress?: CompressOptions | false;
 }
 
 export interface JsonRpcMessage {
@@ -62,7 +65,12 @@ export class Guard {
   private lastHash: string;
   readonly stats = { calls: 0, allowed: 0, blocked: 0, would_block: 0 };
 
+  readonly compressor?: OutputCompressor;
+  /** Requests forwarded to the server whose responses we may need to rewrite, by JSON-RPC id. */
+  private pending = new Map<string, { kind: "tools/list" } | { kind: "tools/call" }>();
+
   constructor(private opts: GuardOptions = {}) {
+    if (opts.compress) this.compressor = new OutputCompressor(opts.compress);
     this.engine = new FDIAEngine(opts.policy);
     this.mode = opts.mode ?? "enforce";
     this.lastHash = opts.previousHash ?? GENESIS;
@@ -70,7 +78,10 @@ export class Guard {
 
   /** Inspect one client -> server message. Anything that isn't tools/call is forwarded untouched. */
   inspect(msg: JsonRpcMessage): Decision {
+    const key = msg.id === undefined || msg.id === null ? undefined : JSON.stringify(msg.id);
+    if (msg.method === "tools/list" && this.compressor && key) this.pending.set(key, { kind: "tools/list" });
     if (msg.method !== "tools/call") return { forward: true };
+    if (this.compressor && msg.params?.name === EXPAND_TOOL_NAME) return this.expandLocally(msg);
 
     const tool = String(msg.params?.name ?? "");
     const args = msg.params?.arguments ?? {};
@@ -118,7 +129,10 @@ export class Guard {
       fdia_audit_digest: evaluation.audit_digest,
     });
 
-    if (!blocked) return { forward: true, evaluation };
+    if (!blocked) {
+      if (this.compressor && key && this.compressor.appliesTo(tool)) this.pending.set(key, { kind: "tools/call" });
+      return { forward: true, evaluation };
+    }
     return {
       forward: false,
       evaluation,
@@ -139,6 +153,53 @@ export class Guard {
         },
       },
     };
+  }
+
+  /**
+   * Inspect one server -> client message. Returns the message to deliver: unchanged, or with
+   * a large tool result compressed / the expand tool appended to tools/list.
+   */
+  inspectServer(msg: JsonRpcMessage): JsonRpcMessage {
+    if (!this.compressor || msg.id === undefined || msg.id === null || !msg.result) return msg;
+    const key = JSON.stringify(msg.id);
+    const pending = this.pending.get(key);
+    if (!pending) return msg;
+    this.pending.delete(key);
+
+    if (pending.kind === "tools/list") {
+      const tools = Array.isArray(msg.result.tools) ? msg.result.tools : [];
+      if (tools.some((t: any) => t?.name === EXPAND_TOOL_NAME)) return msg;
+      return { ...msg, result: { ...msg.result, tools: [...tools, EXPAND_TOOL] } };
+    }
+
+    const content = Array.isArray(msg.result.content) ? msg.result.content : null;
+    if (!content) return msg;
+    let changed = false;
+    const newContent = content.map((part: any) => {
+      if (part?.type !== "text" || typeof part.text !== "string") return part;
+      const c = this.compressor!.compress(part.text);
+      if (!c) return part;
+      changed = true;
+      this.writeAudit({ event: "output_compressed", request_id: msg.id, context_ref: c.ref, chars_in: part.text.length, chars_out: c.text.length });
+      return { ...part, text: c.text };
+    });
+    return changed ? { ...msg, result: { ...msg.result, content: newContent } } : msg;
+  }
+
+  private expandLocally(msg: JsonRpcMessage): Decision {
+    const a = msg.params?.arguments ?? {};
+    const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+    const r = this.compressor!.expand(String(a.context_ref ?? ""), {
+      pattern: typeof a.pattern === "string" ? a.pattern : undefined,
+      context_lines: num(a.context_lines),
+      start_line: num(a.start_line),
+      end_line: num(a.end_line),
+      max_lines: num(a.max_lines),
+    });
+    const text = r
+      ? `${r.lines.map((l) => `${l.n}: ${l.text}`).join("\n")}${r.truncated ? "\n[more lines match; narrow the pattern or range]" : ""}\n(${r.total_lines} lines in the original)`
+      : "Unknown context_ref (the original may have been evicted or the guard restarted).";
+    return { forward: false, response: { jsonrpc: "2.0", id: msg.id ?? null, result: { content: [{ type: "text", text }], ...(r ? {} : { isError: true }) } } };
   }
 
   private writeAudit(fields: Record<string, unknown>): void {

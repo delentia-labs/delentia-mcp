@@ -12,6 +12,10 @@
  *   --map tool=action,...    map upstream tool names to policy action names
  *   --role <role>            caller role for RBAC rules (default: developer)
  *   --name <name>            upstream name recorded in the audit log (default: the command)
+ *   --compress               compress large tool results; adds the delentia_expand_context tool
+ *   --compress-over <tokens> size threshold for --compress (default 2000 estimated tokens)
+ *   --compress-tools a,b*    tool-name patterns whose results may be compressed
+ *                            (default: commands, tests, builds, lint, logs — never plain file reads)
  *
  * MCP stdio messages are newline-delimited JSON-RPC. Client -> server messages are inspected;
  * server -> client output is passed through untouched. Guard diagnostics go to stderr only,
@@ -67,6 +71,12 @@ function run(): void {
     upstreamName: opt("--name") ?? [command, ...commandArgs].join(" ").slice(0, 120),
     previousHash: existsSync(auditPath) ? lastAuditHash(readFileSync(auditPath, "utf8")) : undefined,
     audit: (line) => appendFileSync(auditPath, line + "\n"),
+    compress: opts.includes("--compress")
+      ? {
+          thresholdTokens: Number(opt("--compress-over") ?? 2000),
+          tools: opt("--compress-tools")?.split(",").map((t) => t.trim()).filter(Boolean),
+        }
+      : false,
   });
   log(`${opts.includes("--monitor") ? "monitoring" : "enforcing"} tool calls for: ${command} ${commandArgs.join(" ")} (audit: ${auditPath})`);
 
@@ -79,7 +89,36 @@ function run(): void {
     log(`could not start the server: ${err.message}`);
     process.exitCode = 1;
   });
-  child.stdout.pipe(process.stdout);
+  if (!guard.compressor) {
+    child.stdout.pipe(process.stdout);
+  } else {
+    let out = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      out += chunk;
+      let nl: number;
+      while ((nl = out.indexOf("\n")) !== -1) {
+        const line = out.slice(0, nl);
+        out = out.slice(nl + 1);
+        process.stdout.write(rewriteServerLine(line) + "\n");
+      }
+    });
+    child.stdout.on("end", () => {
+      if (out) process.stdout.write(rewriteServerLine(out));
+    });
+  }
+
+  function rewriteServerLine(line: string): string {
+    if (!line.trim()) return line;
+    try {
+      const msg = JSON.parse(line);
+      if (Array.isArray(msg)) return JSON.stringify(msg.map((m) => guard.inspectServer(m)));
+      const next = guard.inspectServer(msg);
+      return next === msg ? line : JSON.stringify(next);
+    } catch {
+      return line;
+    }
+  }
 
   let buffer = "";
   process.stdin.setEncoding("utf8");
@@ -123,6 +162,10 @@ function run(): void {
 
   child.on("exit", (code, signal) => {
     log(`server exited (${signal ?? code}); tool calls: ${guard.stats.calls}, allowed: ${guard.stats.allowed}, blocked: ${guard.stats.blocked}, would block: ${guard.stats.would_block}`);
+    if (guard.compressor) {
+      const c = guard.compressor.stats;
+      log(`compressed ${c.results_compressed}/${c.results_seen} results, ~${c.tokens_in} -> ~${c.tokens_out} tokens, expands: ${c.expands}`);
+    }
     process.exitCode = code ?? 1;
     process.stdin.pause();
   });

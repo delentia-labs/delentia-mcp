@@ -12,7 +12,8 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@delentia/shared": "*"
+    "@delentia/shared": "*",
+    "@delentia/mcp-delta": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

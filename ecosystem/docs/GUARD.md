@@ -45,6 +45,27 @@ Run a normal day of work, read the log, adjust the policy, then drop `--monitor`
 
 Path rules use `/`; Windows paths are normalised before matching.
 
+## Shrink big command / test / log output (`--compress`)
+
+```bash
+... cli.js --compress --policy coding-agent.json -- <server command>
+```
+
+Results over ~2,000 tokens from command, test, build, lint and log tools are replaced by a compact
+view: the first and last 15 lines, plus every line carrying a failure signal (error, fail,
+exception, traceback, warning, assert, timeout...) with one line of context. The original stays in
+the guard's memory, and the guard adds a `delentia_expand_context` tool so the agent can fetch
+anything that was left out (by search terms or line range). The guard answers that tool itself;
+it never reaches the server.
+
+- On this repo's real build + test log with one failing test inserted, the view is ~66% smaller
+  and keeps the failing test and its assertion.
+- File reads are **not** compressed by default (an agent editing a file needs all of it). Change
+  which tools are eligible with `--compress-tools "run_*,*test*,..."`; `--compress-over <tokens>`
+  sets the threshold.
+- The view is deterministic, so your conversation history stays append-only and your provider's
+  prompt caching keeps working (see `benchmarks/compression-real/README.md`).
+
 ## Audit log
 
 Each decision is one JSON line with the tool, the rule, the verdict and a SHA-256 of the arguments
