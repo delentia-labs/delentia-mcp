@@ -17,15 +17,15 @@ Claude Code / Cursor / Claude Desktop  ──stdio──►  delentia-guard  ─
 Put `delentia-guard --policy <policy> --` in front of the server command you already use:
 
 ```bash
-claude mcp add filesystem -- node <path-to-repo>/packages/guard/dist/cli.js --policy <path-to-repo>/packages/guard/policies/coding-agent.json -- npx -y @modelcontextprotocol/server-filesystem .
+claude mcp add filesystem -- node <path-to-repo>/ecosystem/packages/guard/dist/cli.js --policy <path-to-repo>/ecosystem/packages/guard/policies/coding-agent.json -- npx -y @modelcontextprotocol/server-filesystem .
 ```
 
 Claude Desktop / Cursor: same idea in the JSON config — `command` becomes `node`, and `args` is
-`[".../packages/guard/dist/cli.js", "--policy", ".../coding-agent.json", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "."]`.
+`[".../ecosystem/packages/guard/dist/cli.js", "--policy", ".../coding-agent.json", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "."]`.
 
 Once published, `npx -y delentia-guard --policy coding-agent -- <server command>` works anywhere;
 `--policy coding-agent` refers to the bundled starter policy. Until then, point at
-`packages/guard/dist/cli.js` after `npm run build`.
+`ecosystem/packages/guard/dist/cli.js` after `npm run build` inside `ecosystem/`.
 
 ## Start in monitor mode
 

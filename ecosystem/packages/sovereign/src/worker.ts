@@ -738,7 +738,7 @@ export default {
                         future_score: { type: "number", description: "Computed mathematical score F = (D^I) * A." },
                         verdict: { type: "string", description: "Decision verdict: AUTHORIZED, SAFETY_THRESHOLD_VETO, or SECURITY_AUTH_DENIED." },
                         authorized: { type: "boolean", description: "True if action is permitted to execute, false otherwise." },
-                        audit_digest: { type: "string", description: "SHA-256 tamper-proof cryptographic audit hash." },
+                        audit_digest: { type: "string", description: "SHA-256 digest of this evaluation (shows a changed record; not by itself a tamper-proof log)." },
                         reason: { type: "string", description: "Causal justification for the verification verdict." },
                       },
                       required: ["future_score", "verdict", "authorized", "audit_digest"],

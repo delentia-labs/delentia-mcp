@@ -1,9 +1,15 @@
-name: CI
+name: Ecosystem CI
 
 on:
   pull_request:
+    paths: ["ecosystem/**", ".github/workflows/ecosystem-ci.yml"]
   push:
     branches: [main]
+    paths: ["ecosystem/**", ".github/workflows/ecosystem-ci.yml"]
+
+defaults:
+  run:
+    working-directory: ecosystem
 
 jobs:
   build-typecheck-test:
@@ -15,6 +21,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+          cache-dependency-path: ecosystem/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -28,7 +35,6 @@ jobs:
       - name: Run test suite
         run: npm run test:all
 
-  # No deploy step here by design — deploys are gated and run manually
-  # (see ROADMAP.md / delentia-mcp-ecosystem/TESTING_CANONICAL.md). This
-  # workflow's job is only to catch build/type/logic regressions on every
-  # PR and push to main.
+  # No deploy step here by design: deploys are gated and run manually
+  # (see ecosystem/ROADMAP.md and ecosystem/TESTING_CANONICAL.md). This
+  # workflow only catches build/type/logic regressions on every PR and push.

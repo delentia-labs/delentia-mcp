@@ -6,7 +6,7 @@
  * 
  * Invariants:
  * 1. Physical Cutoff: When A = 0, F unconditionally collapses to 0.0000.
- * 2. Zero Probabilistic Hallucination: Mathematical certainty over probabilistic LLM guardrails.
+ * 2. Deterministic: the same request and policy always give the same verdict (no LLM in the gate).
  * 3. Dynamic User Governance: Organizations can define custom security policies via JSON,
  *    environment variables, or runtime API without code modification.
  */
@@ -113,7 +113,7 @@ export const ArchitectCustomPolicySchema = FDIAPolicySchema;
 export type ArchitectCustomPolicy = FDIAPolicy;
 
 /**
- * ZK-FDIA Safety Request Schema with Dynamic Policy Context
+ * FDIA Safety Request Schema with Dynamic Policy Context
  */
 /** Round 48: the numeric domain evaluate() enforces (same as FDIARequestSchema). */
 export const FDIA_MAX_DATA_QUALITY = 1.0;
@@ -165,7 +165,7 @@ export const FDIARequestSchema = z.object({
 export type FDIARequest = z.infer<typeof FDIARequestSchema>;
 
 /**
- * ZK-FDIA Safety Audit Evaluation Result
+ * FDIA Safety Audit Evaluation Result
  */
 export type FDIASecurityVerdict =
   | "AUTHORIZED"

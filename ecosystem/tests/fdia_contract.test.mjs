@@ -63,7 +63,13 @@ import { fileURLToPath } from "node:url";
 import { FDIAEngine } from "../packages/shared/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ALGO_KERNEL_PY = path.resolve(__dirname, "../../Delentia-OS/rct_control_plane/algorithm_kernel_41.py");
+// Delentia-OS checkout: DELENTIA_OS_DIR, else a sibling of this repo (ecosystem/ sits one level down).
+const KERNEL_REL = "rct_control_plane/algorithm_kernel_41.py";
+const ALGO_KERNEL_PY = [
+  process.env.DELENTIA_OS_DIR && path.resolve(process.env.DELENTIA_OS_DIR, KERNEL_REL),
+  path.resolve(__dirname, "../../Delentia-OS", KERNEL_REL),
+  path.resolve(__dirname, "../../../Delentia-OS", KERNEL_REL),
+].filter(Boolean).find((p) => fs.existsSync(p)) ?? path.resolve(__dirname, "../../../Delentia-OS", KERNEL_REL);
 const PYTHON_AVAILABLE = fs.existsSync(ALGO_KERNEL_PY);
 
 if (!PYTHON_AVAILABLE) {

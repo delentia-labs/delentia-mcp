@@ -40,7 +40,7 @@ export function createFDIAMcpServer() {
     "evaluate_fdia",
     {
       description:
-        "Evaluates action requests through the deterministic ZK-FDIA equation F = (D^I) * A and enterprise custom policy rules (Action allowlists, Conditional path checks, Human Architect Signatures, RBAC, and Dual Sign-off).",
+        "Evaluates action requests through the deterministic FDIA equation F = (D^I) * A and enterprise custom policy rules (Action allowlists, Conditional path checks, Human Architect Signatures, RBAC, and Dual Sign-off).",
       inputSchema: {
         data_quality: z
           .number()

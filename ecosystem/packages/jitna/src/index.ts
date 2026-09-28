@@ -99,7 +99,7 @@ export function orchestrateSwarm(input: OrchestrateSwarmInput): SwarmOrchestrati
   // routing decision above actually selected.
   const primarySubtasks: Record<LoRAPillarRole, string> = {
     router: `Parse intent "${intentCode}" and route dependency parameters for "${objective}".`,
-    guardian: `Enforce ZK-FDIA gate F = (D^I) * A against "${objective}". Verify caller authorization before executor handoff.`,
+    guardian: `Enforce FDIA gate F = (D^I) * A against "${objective}". Verify caller authorization before executor handoff.`,
     executor: `Generate tool payload and compile executable output for "${objective}".`,
     scribe: `Crystallize runtime state deltas from "${objective}" and save warm cache to memory.`,
   };

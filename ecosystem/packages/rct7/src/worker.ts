@@ -52,7 +52,7 @@ export default {
             $schema: "https://json.schemastore.org/mcp-server-card.json",
             name: "Delentia RCT-7 Thinking Engine",
             version: "2.1.0",
-            description: "Authentic 7-Stage Reverse Component Thinking mental operating system to eliminate LLM hallucination and ensure causal intent alignment.",
+            description: "7-stage Reverse Component Thinking checklist that returns a heuristic alignment score for a plan. It helps catch vague or misaligned plans; it does not detect or prevent hallucinations.",
             vendor: {
               name: "Delentia Labs",
               url: "https://delentia.com",

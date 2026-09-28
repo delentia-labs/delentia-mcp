@@ -143,8 +143,8 @@ curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
 
 | Marketplace / Directory | Status | Official Live Listing Link |
 | :--- | :---: | :--- |
-| **Smithery.ai** | **Published (100/100 Quality)** | [smithery.ai/servers/delentia/delentia-sovereign](https://smithery.ai/servers/delentia/delentia-sovereign) |
-| **Glama.ai** | **Published (Triple-A Verified)** | [glama.ai/mcp/servers/delentia-labs/delentia-mcp](https://glama.ai/mcp/servers/delentia-labs/delentia-mcp) |
+| **Smithery.ai** | **Published** | [smithery.ai/servers/delentia/delentia-sovereign](https://smithery.ai/servers/delentia/delentia-sovereign) |
+| **Glama.ai** | **Published** | [glama.ai/mcp/servers/delentia-labs/delentia-mcp](https://glama.ai/mcp/servers/delentia-labs/delentia-mcp) |
 | **Official MCP Registry** | **Published** | [registry.modelcontextprotocol.io/?q=delentia](https://registry.modelcontextprotocol.io/?q=delentia) |
 | **MCPize** | **Published** | [mcpize.com/mcp/delentia-mcp](https://mcpize.com/mcp/delentia-mcp) |
 | **Zuplo Developer Portal** | **Published** | [delentia-gateway-main-c7624a5.zuplo.site/introduction](https://delentia-gateway-main-c7624a5.zuplo.site/introduction) |
@@ -156,9 +156,23 @@ curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
 
 ## 🔒 Enterprise Security & Verification
 
-- **Tamper-Proof Audit Digest:** Every security evaluation computes a SHA-256 cryptographic verification digest.
-- **Dual Sign-Off Gate:** High-risk actions unconditionally mandate multi-party authorization tokens.
+- **Audit digest:** every evaluation returns a SHA-256 digest of its inputs and verdict. A digest shows that a record was changed; on its own it does not make a log tamper-proof. For an enforcing, Ed25519-signed, hash-chained log of every tool call, run [Delentia Guard](ecosystem/docs/GUARD.md).
+- **Architect sign-off:** high-risk actions need an Ed25519-signed Architect token bound to that action and payload, from a key the deployment trusts; dual sign-off actions need two different trusted keys. Unsigned or forged tokens fail closed.
 - **Structured pre-execution reasoning:** `rct_think` walks a 7-stage checklist and returns a heuristic alignment score. It helps catch vague or misaligned plans; it does not guarantee the absence of hallucinations.
+
+---
+
+## 🧩 Source code
+
+This repository holds both the public connector (root: `bin/`, `dist/`, listing files) and the server source in [`ecosystem/`](ecosystem/): the Cloudflare Workers behind the 6 tools (`sovereign`, `fdia`, `rct7`, `delta`, `jitna`, `intent-loop`, `shared`) and [Delentia Guard](ecosystem/docs/GUARD.md) (`packages/guard`).
+
+```bash
+cd ecosystem
+npm ci
+npm run build && npm run typecheck && npm run test:all
+```
+
+Cross-stack bridge tests that need Delentia's non-public Python services skip unless `DELENTIA_PRIVATE_SERVICES_DIR` is set.
 
 ---
 
@@ -167,4 +181,4 @@ curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
 - **Developer:** **Delentia Labs**
 - **Chief Architect:** **Ittirit Saengow (The Architect)**
 - **Official Portal:** [https://delentia.com](https://delentia.com)
-- **License:** Apache-2.0 (Public Client Connector)
+- **License:** Apache-2.0 (connector and `ecosystem/` server source)
