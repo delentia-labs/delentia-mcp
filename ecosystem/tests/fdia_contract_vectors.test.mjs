@@ -22,7 +22,7 @@ import path from "node:path";
 import { FDIAEngine } from "../packages/shared/dist/fdia-core.js";
 import sovereign from "../packages/sovereign/dist/worker.js";
 
-const FDIA_VECTORS_SHA256 = "98f2a7f72ceaefe5d13e1ba7a797a1cd8c78c5ec3c2253f939825cebad3ec475";
+const FDIA_VECTORS_SHA256 = "9bf3a660b5cfc8546cc329bd48c4660312fc636920763bc591033aa10700a496";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const raw = readFileSync(path.resolve(here, "../contracts/fdia_vectors.v1.json"), "utf-8").replace(/\r\n/g, "\n");
 const vectors = JSON.parse(raw);

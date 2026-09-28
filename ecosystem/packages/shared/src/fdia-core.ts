@@ -866,7 +866,10 @@ export class FDIAEngine {
    */
   public calculateF(D: number, I: number, A: number): number {
     if (A === 0) return 0.0;
-    if (!Number.isFinite(D) || !Number.isFinite(I) || !Number.isFinite(A) || D < 0 || I < 0) {
+    // Round 48 (Architect decision): no data or no intent means no future.
+    // D <= 0 or I <= 0 -> 0 (JS would give 0 ** 0 = 1 and D ** 0 = 1, i.e.
+    // a full score with no intent). Same rule as Delentia-OS algo_01_fdia.
+    if (!Number.isFinite(D) || !Number.isFinite(I) || !Number.isFinite(A) || D <= 0 || I <= 0) {
       return 0.0;
     }
     const raw = Math.pow(D, I) * A;
