@@ -1,0 +1,20 @@
+# ==============================================================================
+# Delentia OS MCP Ecosystem — Cloudflare Workers Environment Variables Template
+# Copy this file to .dev.vars for local development (Never commit .dev.vars to Git)
+# ==============================================================================
+
+# Environment mode: development | staging | production
+ENVIRONMENT=development
+
+# Sentry DSN for 24/7 unhandled error capture & performance monitoring
+SENTRY_DSN=https://example_public_key@o0.ingest.sentry.io/0000000
+
+# Direct GitHub OAuth Credentials (for direct authentication without Zuplo)
+GITHUB_CLIENT_ID=your_github_client_id_here
+GITHUB_CLIENT_SECRET=your_github_client_secret_here
+
+# Secret encryption key for signing internal session tokens (32+ characters)
+AUTH_SECRET=delentia_architect_secure_jwt_secret_key_32_chars_min
+
+# Zuplo Commercial API Gateway Shared Secret (optional, for enterprise tier)
+ZUPLO_API_KEY=sk_delentia_dev_gateway_key_placeholder

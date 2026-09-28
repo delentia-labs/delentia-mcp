@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+/package-lock.json
 
 # Environment and Secrets
 .env
@@ -11,7 +11,7 @@ package-lock.json
 *.crt
 
 # Cloudflare and Edge Artifacts
-wrangler.jsonc
+/wrangler.jsonc
 .wrangler/
 
 # Logs and Debug

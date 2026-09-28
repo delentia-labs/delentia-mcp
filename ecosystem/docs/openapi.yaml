@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  title: Delentia OS MCP Ecosystem API
+  version: 1.0.0
+  description: |
+    Enterprise API Gateway for Delentia OS Model Context Protocol (MCP) Ecosystem.
+    Provides mathematical deterministic security guardrails (FDIA), 7-Stage Reverse Component Thinking (RCT-7),
+    State Differential context compression (Delta Engine), and 1+4 LoRA Swarm Orchestration (JITNA).
+  contact:
+    name: Delentia Labs Architecture
+    url: https://delentia.com
+    email: architect@delentia.com
+servers:
+  - url: https://delentia-fdia-mcp.delentia.workers.dev
+    description: Live Cloudflare Edge Server (FDIA Security)
+  - url: https://api.delentialabs.com
+    description: Production Enterprise Gateway (Zuplo + Stripe)
+  - url: http://localhost:8787
+    description: Local Sandbox Environment
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /policy:
+    post:
+      summary: Configure Enterprise Custom Policy for Parameter A
+      description: Sets or updates the active enterprise safety governance policy (Forbidden patterns, RBAC, Dual sign-off, Thresholds) stored in Durable Objects.
+      operationId: configureEnterprisePolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - policy_id
+                - policy_name
+              properties:
+                policy_id:
+                  type: string
+                  example: "corp_policy_strict"
+                policy_name:
+                  type: string
+                  example: "Strict Enterprise Governance"
+                blocked_action_patterns:
+                  type: array
+                  items:
+                    type: string
+                  example: ["*drop*", "*truncate*", "*wipe*", "*export_secrets*"]
+                allowed_roles:
+                  type: object
+                  example:
+                    admin: ["*"]
+                    developer: ["read_*", "write_code"]
+                    junior_dev: ["read_*"]
+                custom_safety_threshold:
+                  type: number
+                  example: 0.85
+                require_human_dual_signoff:
+                  type: array
+                  items:
+                    type: string
+                  example: ["deploy_prod", "rotate_master_key"]
+      responses:
+        "200":
+          description: Policy configured successfully
+    get:
+      summary: Get Active Enterprise Custom Policy
+      description: Retrieves the currently active governance rules applied to parameter A.
+      operationId: getActiveEnterprisePolicy
+      responses:
+        "200":
+          description: Active enterprise policy definition
+
+  /mcp/fdia:
+    post:
+      summary: Delentia FDIA Security Evaluation Gate
+      description: Evaluates an action through F = (D^I) * A. If authorization is absent (A=0), execution is mathematically preempted (F=0).
+      operationId: evaluateFdia
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - data_quality
+                - action_name
+              properties:
+                data_quality:
+                  type: number
+                  minimum: 0.0
+                  maximum: 1.0
+                  example: 0.95
+                  description: D (Data Quality Context)
+                intent_precision:
+                  type: number
+                  minimum: 1.0
+                  default: 1.0
+                  example: 1.2
+                  description: I (Intent Precision Exponent)
+                authorized:
+                  type: boolean
+                  default: true
+                  example: true
+                  description: A (Architect Gate / Authorization status)
+                action_name:
+                  type: string
+                  example: "drop_customer_database"
+                  description: Target tool or operation to audit
+                caller_context:
+                  type: string
+                  example: "Agent role: junior_coder"
+      responses:
+        "200":
+          description: FDIA Evaluation Verdict and Safety Digest
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  future_score:
+                    type: number
+                    example: 0.9405
+                  verdict:
+                    type: string
+                    example: "AUTHORIZED"
+                  authorized:
+                    type: boolean
+                    example: true
+                  audit_digest:
+                    type: string
+                    example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+  /mcp/rct7:
+    post:
+      summary: Delentia RCT-7 Reverse Thinking Pipeline
+      description: Enforces the authentic 7-stage mental OS (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent).
+      operationId: rctThink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - problem_statement
+              properties:
+                problem_statement:
+                  type: string
+                  example: "Design a fault-tolerant multi-agent payment pipeline"
+                environment_context:
+                  type: string
+                  example: "High concurrency banking transactions"
+                target_desired_outcome:
+                  type: string
+                  example: "Zero double-spending with sub-50ms latency"
+      responses:
+        "200":
+          description: Complete 7-Stage Reasoning Structure
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  problem_statement:
+                    type: string
+                  stages:
+                    type: array
+                    items:
+                      type: object
+                  synthesized_solution:
+                    type: string
+
+  /mcp/delta:
+    post:
+      summary: Delentia Delta Context Compression Engine
+      description: Compresses verbose logs and conversations into state diffs, reducing token/VRAM overhead by up to 74.2% - 91.5%.
+      operationId: compressContext
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - raw_context
+              properties:
+                raw_context:
+                  type: string
+                  example: "Long 5000-line server logs or 25-turn chat history..."
+                intent_focus:
+                  type: string
+                  example: "Database connection timeouts"
+                aggressive_mode:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Compressed Delta Stream and Metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  original_char_count:
+                    type: integer
+                  compressed_char_count:
+                    type: integer
+                  reduction_percentage:
+                    type: number
+                    example: 74.2
+                  compressed_delta_text:
+                    type: string
+
+  /mcp/jitna:
+    post:
+      summary: Delentia JITNA Multi-Agent Swarm Orchestrator
+      description: Dispatches tasks into JITNA packets [I, D, Delta, A, R, M] across 1+4 Pillars LoRA (Router, Guardian, Executor, Scribe).
+      operationId: orchestrateSwarm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - objective
+              properties:
+                objective:
+                  type: string
+                  example: "Deploy hardened microservice with automated regression suite"
+                data_readiness:
+                  type: number
+                  default: 80
+                target_pillar:
+                  type: string
+                  enum: [auto, router, guardian, executor, scribe]
+                  default: auto
+      responses:
+        "200":
+          description: Coordinated JITNA Packet and LoRA Swarm Assignment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jitna_packet:
+                    type: object
+                  assigned_pillars:
+                    type: array
+                    items:
+                      type: object
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sk_delentia_*
+      description: API Key issued via Delentia Developer Portal (portal.delentialabs.com)

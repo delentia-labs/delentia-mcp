@@ -1,0 +1,21 @@
+{
+  "name": "@delentia/guard",
+  "version": "0.1.0",
+  "description": "Enforcing proxy for MCP tool calls: every tools/call is checked against an FDIA policy before it reaches the server, with a hash-chained audit log.",
+  "type": "module",
+  "main": "dist/guard.js",
+  "types": "dist/guard.d.ts",
+  "bin": {
+    "delentia-guard": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@delentia/shared": "*",
+    "@delentia/mcp-delta": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

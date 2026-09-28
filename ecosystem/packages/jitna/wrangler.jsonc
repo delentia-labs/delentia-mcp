@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delentia-jitna-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JITNA_SESSION_DO",
+        "class_name": "JITNASessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["JITNASessionDO"]
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SERVER_NAME": "Delentia JITNA Swarm Orchestrator MCP"
+  }
+}

@@ -1,0 +1,6 @@
+ENVIRONMENT=development
+SERVER_NAME=Delentia Delta Engine MCP
+SENTRY_DSN=https://example_public_key@o0.ingest.sentry.io/0000000
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+AUTH_SECRET=delentia_delta_secure_key_32_characters_minimum

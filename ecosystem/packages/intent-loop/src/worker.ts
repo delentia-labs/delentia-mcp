@@ -1,0 +1,638 @@
+import { IntentLoopEngine, type IntentPacket, type IntentResult } from "./index.js";
+import {
+  captureException,
+  buildRctdbEntryFromIntentLoop,
+  ingestGraphragDocument,
+  indexTextAsVector,
+  checkCodeHalts,
+  createGraphNode,
+  createGraphRelationship,
+  analyzeTradeoffs,
+} from "@delentia/shared";
+export { RCTDBLogSessionDO, MEEGrowthSessionDO } from "@delentia/shared";
+
+/** Same code-role detection regex used for specialist routing in index.ts
+ * — reused here (not imported, since index.ts doesn't export it) to decide
+ * whether a completed run is worth a Halting Detection safety check. */
+const CODE_INTENT_RE = /\b(code|program|debug|function|bug|script)\b/i;
+
+/**
+ * Real, minimal observability for the 6 bridges (5 forward + 1 reverse):
+ * every one of them was previously a completely silent `catch {}` with no
+ * way to tell, from outside, whether syncs were succeeding or failing.
+ * Isolate-scoped, not durable — same disclosed limitation as
+ * IntentLoopEngine's own in-memory cache below (does NOT survive an
+ * isolate recycle or span multiple isolates). A real per-caller/global
+ * Durable-Object-backed counter would be the production-grade version of
+ * this; this is the honest, minimal first step, not a claim of full
+ * production observability.
+ */
+export type BridgeName = "graphrag" | "vectorSearch" | "haltingDetection" | "graphTraversal" | "moipPlanner" | "reverseRctdbQuery";
+export const bridgeMetrics: Record<BridgeName, { success: number; failure: number }> = {
+  graphrag: { success: 0, failure: 0 },
+  vectorSearch: { success: 0, failure: 0 },
+  haltingDetection: { success: 0, failure: 0 },
+  graphTraversal: { success: 0, failure: 0 },
+  moipPlanner: { success: 0, failure: 0 },
+  reverseRctdbQuery: { success: 0, failure: 0 },
+};
+function recordBridgeOutcome(name: BridgeName, ok: boolean): void {
+  bridgeMetrics[name][ok ? "success" : "failure"]++;
+}
+
+/**
+ * Steps the MEE growth Durable Object for `sessionId` — same design as
+ * packages/fdia/src/worker.ts's stepMeeGrowth and packages/sovereign's
+ * (kept as a duplicate function rather than a shared helper for the same
+ * reason those two are: each worker's Env type differs and this is
+ * genuinely tiny; the growth MATH lives in one place, @delentia/shared's
+ * MEEGrowthTracker, which all three call through the DO). Best-effort: a
+ * missing binding or DO error never blocks the run_intent_loop response —
+ * passed into IntentLoopEngine.process() as ProcessOptions.persistentStep.
+ */
+async function stepMeeGrowth(
+  env: Env,
+  sessionId: string,
+  delta: number,
+  governanceViolation: boolean
+): Promise<{ step: unknown; summary: unknown } | undefined> {
+  if (!env.MEE_SESSION_DO) return undefined;
+  try {
+    const doId = env.MEE_SESSION_DO.idFromName(sessionId);
+    const stub = env.MEE_SESSION_DO.get(doId);
+    const resp = await stub.fetch("http://mee/step", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta, governance_violation: governanceViolation, session_id: sessionId }),
+    });
+    if (!resp.ok) return undefined;
+    return (await resp.json()) as { step: unknown; summary: unknown };
+  } catch {
+    return undefined;
+  }
+}
+
+interface Env {
+  OPENROUTER_API_KEY?: string;
+  ENVIRONMENT?: string;
+  SERVER_NAME?: string;
+  SENTRY_DSN?: string;
+  RCTDB_LOG_DO?: DurableObjectNamespace;
+  /** Durable-Object-backed MEE growth persistence — same class (MEEGrowthSessionDO,
+   * from @delentia/shared) already bound in packages/fdia and packages/sovereign.
+   * Until 2026-09-14 this was the one pillar worker where MEE growth (`mee_step`
+   * on IntentResult) was isolate-scoped only (via IntentLoopEngine's in-memory
+   * `this.growth`), unlike its siblings — see ProcessOptions.persistentStep in
+   * index.ts. Optional: when unset, behavior is unchanged (mee_step still
+   * present, mee_growth simply absent), same graceful-fallback contract as
+   * every other optional binding in this file. */
+  MEE_SESSION_DO?: DurableObjectNamespace;
+  /** Shared secret required (via the x-bridge-api-key header) to call
+   * GET /rctdb/query — the reverse direction of the bridge, letting a
+   * Python service query this kernel's own RCTDB audit log over real
+   * HTTP. Unset means that route always returns 501, not an open/
+   * unauthenticated endpoint. Set via `wrangler secret put
+   * BRIDGE_API_KEY` at deploy time — never committed. */
+  BRIDGE_API_KEY?: string;
+  /** Base URL of a running graphrag-complete instance (e.g.
+   * http://127.0.0.1:8013 in local dev, or a public URL once deployed).
+   * Optional — when unset, syncToGraphRag() is a silent no-op, the same
+   * pattern as RCTDB_LOG_DO above. This is the actual network bridge
+   * between this TS/Cloudflare-Workers kernel and the Python microservices
+   * platform: without it configured, the two stacks never talk to each
+   * other (verified by grepping this whole package for any reference to
+   * GraphRAG/Vector Search/Halting Detection before this change — there
+   * was none). */
+  GRAPHRAG_BASE_URL?: string;
+  /** Base URL of a running vector-search instance (ALGO-16, real FAISS/
+   * Qdrant backend). Optional — unset means syncToVectorSearch() is a
+   * silent no-op. A second, complementary real memory backend alongside
+   * GraphRAG: same hashing-trick embedding (hashing-embedding.ts,
+   * verified byte-for-byte identical to GraphRAG's Python-side
+   * embedding), indexed into a real ANN index instead of GraphRAG's
+   * in-process linear scan. */
+  VECTOR_SEARCH_BASE_URL?: string;
+  /** Dimension the target Vector Search instance is configured with (its
+   * own DIMENSION env var, default 768 there). Must match exactly — a
+   * mismatch is rejected by the real service with a 400. */
+  VECTOR_SEARCH_DIMENSION?: string;
+  /** Base URL of a running halting-detection instance (ALGO-22, real
+   * subprocess-sandboxed timeout+memory-limit enforcement, fixed and
+   * verified for real this session). Optional — unset means
+   * checkGeneratedCodeHalts() is a silent no-op. */
+  HALTING_DETECTION_BASE_URL?: string;
+  /** Base URL of a running graph-traversal instance (ALGO-17, real
+   * BFS/DFS/Dijkstra/PageRank/Louvain + real Neo4j). Optional — unset
+   * means syncToGraphTraversal() is a silent no-op. A third
+   * complementary real memory backend: explicit relationship queries
+   * ("what outcomes came from this intent") that neither GraphRAG's
+   * fusion search nor Vector Search's ANN similarity can answer. */
+  GRAPH_TRAVERSAL_BASE_URL?: string;
+  /** Base URL of a running moip-planner instance (ALGO-02, real
+   * Pareto-dominance multi-objective analysis). Optional — unset means
+   * analyzeIntentLoopTradeoffs() is a silent no-op. Purely advisory:
+   * never changes which model is routed to, only records a real
+   * trade-off analysis of the run that actually happened. */
+  MOIP_PLANNER_BASE_URL?: string;
+}
+
+/**
+ * Best-effort real logging of this run into the RCTDB-inspired 8-dimension
+ * log (see @delentia/shared/rctdb-log.ts for why this is a Durable Object
+ * rather than the separately-hosted database RCTDB was originally designed
+ * to be). Never blocks or fails the actual run_intent_loop response — a
+ * missing binding or a DO error is swallowed here, same as MEE growth
+ * logging in sovereign/fdia.
+ */
+export async function logToRctdb(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.RCTDB_LOG_DO) return;
+  try {
+    const specialistModel = result.output && typeof result.output === "object" ? (result.output as Record<string, unknown>).specialist_model : undefined;
+    const entry = buildRctdbEntryFromIntentLoop({
+      subjectUuid: sessionId,
+      queryText: packet.intent,
+      fdiaScore: result.fdia_score,
+      verdict: result.fdia_score !== undefined ? result.state : undefined,
+      specialistModel: typeof specialistModel === "string" ? specialistModel : undefined,
+      verifierModels: result.verification?.votes.map((v) => v.model),
+      verification: result.verification ? { passed: result.verification.passed, confidence: result.verification.confidence } : null,
+      meeStep: result.mee_step ? { g_before: result.mee_step.g_before, g_after: result.mee_step.g_after, delta: result.mee_step.delta } : null,
+      provenance: { source: "run_intent_loop", version: "0.1.0" },
+    });
+
+    const doId = env.RCTDB_LOG_DO.idFromName(sessionId);
+    const stub = env.RCTDB_LOG_DO.get(doId);
+    await stub.fetch("http://rctdb/append", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    // logToRctdb predates the bridgeMetrics observability layer and has
+    // its own, older non-blocking contract — left unmetered rather than
+    // retrofitted, since it's not one of the 6 named bridges tracked.
+  } catch {
+    // Non-blocking — RCTDB logging must never break the actual response.
+  }
+}
+
+/**
+ * Best-effort real sync of a completed run into GraphRAG's semantic
+ * memory. This is the actual TS<->Python bridge: RCTDB (above) records a
+ * structured 8-dimension audit trail of what happened, but audit-log
+ * entries are not semantically searchable — GraphRAG is. Only completed
+ * runs with real output are worth ingesting; a gate rejection or failure
+ * has no useful content for future semantic recall. Never blocks or
+ * fails the actual response — same non-blocking contract as
+ * logToRctdb().
+ */
+export async function syncToGraphRag(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.GRAPHRAG_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    await ingestGraphragDocument(env.GRAPHRAG_BASE_URL, `Intent: ${packet.intent}\nOutcome: ${JSON.stringify(result.output)}`, {
+      source: "intent-loop",
+      session_id: sessionId,
+      fdia_score: result.fdia_score,
+      cache_hit: result.cache_hit,
+    });
+    recordBridgeOutcome("graphrag", true);
+  } catch {
+    // Non-blocking — same contract as logToRctdb: GraphRAG being
+    // unreachable must never break the actual run_intent_loop response.
+    recordBridgeOutcome("graphrag", false);
+  }
+}
+
+/**
+ * Best-effort real sync of a completed run's intent+outcome into Vector
+ * Search — a second, complementary real memory backend alongside
+ * GraphRAG (both may be configured at once; each is independent and
+ * best-effort). Uses the same hashing-trick embedding as GraphRAG
+ * (verified byte-for-byte identical to its Python-side implementation),
+ * so text embedded here and text embedded by GraphRAG/graphrag-complete
+ * are directly comparable.
+ */
+export async function syncToVectorSearch(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.VECTOR_SEARCH_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const dimension = env.VECTOR_SEARCH_DIMENSION ? parseInt(env.VECTOR_SEARCH_DIMENSION, 10) : 768;
+    await indexTextAsVector(
+      env.VECTOR_SEARCH_BASE_URL,
+      `intent-loop-${sessionId}-${result.intent_hash}`,
+      `Intent: ${packet.intent}\nOutcome: ${JSON.stringify(result.output)}`,
+      dimension,
+      { source: "intent-loop", session_id: sessionId }
+    );
+    recordBridgeOutcome("vectorSearch", true);
+  } catch {
+    // Non-blocking — same contract as syncToGraphRag.
+    recordBridgeOutcome("vectorSearch", false);
+  }
+}
+
+/** Matches SpecialistResult.output's raw text (index.ts) for a fenced
+ * ```code``` block. Halting Detection executes real code in a real
+ * sandbox — it makes no sense to feed it free-form prose, so this only
+ * fires when a genuine code block is present, not on every code-related
+ * intent. */
+function extractCodeBlock(text: string): string | null {
+  const match = text.match(/```(?:python)?\n([\s\S]*?)```/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Best-effort real safety check of generated code via Halting Detection's
+ * real sandboxed timeout+memory-limit enforcement (fixed and verified for
+ * real this session — see TESTING_CANONICAL.md). Only runs for intents
+ * that were routed to the "code" specialist role (same detection regex
+ * used for that routing in index.ts) and whose output actually contains a
+ * fenced code block. If GraphRAG is also configured, the finding is
+ * remembered as real semantic memory — the identical Halting Detection ->
+ * GraphRAG pattern already proven end-to-end on the Python side
+ * (integration-tests/test_graphrag_halting_e2e.py), now also reachable
+ * from the TS side.
+ */
+export async function checkGeneratedCodeHalts(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.HALTING_DETECTION_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  if (!CODE_INTENT_RE.test(packet.intent)) return;
+  try {
+    const outputRecord = result.output as Record<string, unknown>;
+    const rawOutput = typeof outputRecord.output === "string" ? outputRecord.output : "";
+    const code = extractCodeBlock(rawOutput);
+    if (!code) return; // no actual code block to safety-check
+
+    const check = await checkCodeHalts(env.HALTING_DETECTION_BASE_URL, code, {}, 3000);
+
+    if (env.GRAPHRAG_BASE_URL) {
+      const verdict = check.completed && check.halted
+        ? "halted safely within the timeout"
+        : "did NOT halt within the timeout - potentially unsafe (infinite loop or excessive runtime)";
+      await ingestGraphragDocument(
+        env.GRAPHRAG_BASE_URL,
+        `Halting Detection checked code generated for intent "${packet.intent}" and it ${verdict}.`,
+        { source: "intent-loop-halting-check", session_id: sessionId, halted: check.halted, completed: check.completed }
+      );
+    }
+    recordBridgeOutcome("haltingDetection", true);
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("haltingDetection", false);
+  }
+}
+
+/**
+ * Best-effort real sync of a completed run's intent+outcome into Graph
+ * Traversal as an explicit relationship: an Intent node, an Outcome node,
+ * and a PRODUCED edge between them. Complementary to GraphRAG (content-
+ * fusion search) and Vector Search (ANN similarity) — this is the one
+ * backend that can answer real relationship queries later (e.g. shortest
+ * path between two remembered intents/outcomes), which neither of the
+ * other two can.
+ */
+export async function syncToGraphTraversal(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.GRAPH_TRAVERSAL_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const intentNodeId = `intent-${sessionId}-${result.intent_hash}`;
+    const outcomeNodeId = `outcome-${sessionId}-${result.intent_hash}`;
+    await createGraphNode(env.GRAPH_TRAVERSAL_BASE_URL, intentNodeId, ["Intent"], {
+      text: packet.intent,
+      session_id: sessionId,
+    });
+    await createGraphNode(env.GRAPH_TRAVERSAL_BASE_URL, outcomeNodeId, ["Outcome"], {
+      summary: JSON.stringify(result.output),
+      fdia_score: result.fdia_score,
+    });
+    await createGraphRelationship(env.GRAPH_TRAVERSAL_BASE_URL, intentNodeId, outcomeNodeId, "PRODUCED", {
+      session_id: sessionId,
+    });
+    recordBridgeOutcome("graphTraversal", true);
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("graphTraversal", false);
+  }
+}
+
+/**
+ * Best-effort real, honest trade-off analysis of a completed run via
+ * MOIP's real Pareto-dominance logic — purely advisory, never changes
+ * which model was actually used. Objective values are real, derived
+ * directly from this run's own real fields (FDIA intent precision,
+ * multi-model verification confidence, and a deterministic 0-1
+ * normalization of real latency_ms) — never fabricated benchmark data.
+ * When GraphRAG is also configured, the resulting recommendation is
+ * remembered as real semantic memory, the same pattern already used for
+ * Halting Detection findings.
+ */
+export async function analyzeIntentLoopTradeoffs(env: Env, sessionId: string, packet: IntentPacket, result: IntentResult): Promise<void> {
+  if (!env.MOIP_PLANNER_BASE_URL) return;
+  if (result.state !== "completed" || !result.output) return;
+  try {
+    const speedScore = 1 / (1 + result.latency_ms / 1000); // real latency_ms, deterministic 0-1 normalization
+    const analysis = await analyzeTradeoffs(
+      env.MOIP_PLANNER_BASE_URL,
+      packet.intent,
+      [
+        { id: "intent_precision", name: "Intent Precision", description: "FDIA intent precision score", weight: 0.4, maximize: true, target_value: 1.0 },
+        { id: "verification_confidence", name: "Verification Confidence", description: "Multi-model consensus confidence", weight: 0.4, maximize: true, target_value: 1.0 },
+        { id: "speed", name: "Speed", description: "Inverse-latency score (1 / (1 + latency_s))", weight: 0.2, maximize: true, target_value: 1.0 },
+      ],
+      {
+        id: sessionId,
+        name: "actual run",
+        description: packet.intent,
+        objective_values: {
+          intent_precision: result.fdia_score ?? 0,
+          verification_confidence: result.verification?.confidence ?? 0,
+          speed: speedScore,
+        },
+      }
+    );
+
+    if (env.GRAPHRAG_BASE_URL) {
+      await ingestGraphragDocument(
+        env.GRAPHRAG_BASE_URL,
+        `MOIP trade-off analysis for intent "${packet.intent}": ${analysis.recommendation} (total_score=${analysis.total_score.toFixed(2)})`,
+        { source: "intent-loop-moip-analysis", session_id: sessionId, total_score: analysis.total_score }
+      );
+    }
+    recordBridgeOutcome("moipPlanner", true);
+  } catch {
+    // Non-blocking — same contract as the other background syncs.
+    recordBridgeOutcome("moipPlanner", false);
+  }
+}
+
+// One engine instance per Worker isolate. Memory (recall/store) is real but
+// isolate-scoped — it does NOT survive an isolate recycle or span multiple
+// isolates. This is the same known, disclosed limitation already tracked in
+// ROADMAP.md for the other 4 pillar workers' global-Durable-Object pattern;
+// wiring this to a properly per-caller-scoped Durable Object is real
+// follow-up work, not done in this pass.
+let engineCache: { key: string; engine: IntentLoopEngine } | null = null;
+function getEngine(apiKey: string): IntentLoopEngine {
+  if (!engineCache || engineCache.key !== apiKey) {
+    engineCache = { key: apiKey, engine: new IntentLoopEngine({ apiKey }) };
+  }
+  return engineCache.engine;
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const serverName = env.SERVER_NAME || "Delentia Intent Loop MCP";
+    const corsHeaders = { "Access-Control-Allow-Origin": "*" };
+
+    try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            ...corsHeaders,
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-session-id",
+          },
+        });
+      }
+
+      if (url.pathname === "/health" || url.pathname === "/") {
+        return new Response(
+          JSON.stringify({
+            status: "healthy",
+            server: "delentia-intent-loop",
+            name: serverName,
+            version: "0.1.0",
+            note: "run_intent_loop makes real outbound calls to OpenRouter (free-tier models) for both execution and multi-model verification. Requires OPENROUTER_API_KEY to be configured; without it, every call fails closed with a real error, not a fabricated success.",
+            openrouter_configured: Boolean(env.OPENROUTER_API_KEY),
+            graphrag_bridge_configured: Boolean(env.GRAPHRAG_BASE_URL),
+            vector_search_bridge_configured: Boolean(env.VECTOR_SEARCH_BASE_URL),
+            halting_detection_bridge_configured: Boolean(env.HALTING_DETECTION_BASE_URL),
+            graph_traversal_bridge_configured: Boolean(env.GRAPH_TRAVERSAL_BASE_URL),
+            moip_planner_bridge_configured: Boolean(env.MOIP_PLANNER_BASE_URL),
+            reverse_bridge_configured: Boolean(env.BRIDGE_API_KEY),
+            // Real success/failure counts for every bridge call this
+            // isolate has made — isolate-scoped, NOT durable (resets on
+            // isolate recycle, does not aggregate across isolates). A
+            // real first step in observability where there was
+            // previously none (every bridge was a silent `catch {}`);
+            // not a claim of full production-grade metrics, which would
+            // need a Durable-Object-backed counter.
+            bridge_metrics: bridgeMetrics,
+            transports: { streamable_http: "/mcp" },
+            environment: env.ENVIRONMENT || "production",
+            sentry_enabled: Boolean(env.SENTRY_DSN),
+          }),
+          { headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
+        return new Response(
+          JSON.stringify({
+            $schema: "https://json.schemastore.org/mcp-server-card.json",
+            name: "Delentia Intent Loop",
+            version: "0.1.0",
+            description: "FDIA-gated agent orchestration loop: every intent is validated by the FDIA gate before it can touch memory or invoke a model, real model execution + real multi-model consensus verification via OpenRouter.",
+            vendor: {
+              name: "Delentia Labs",
+              url: "https://delentia.com",
+              portalUrl: "https://delentia-gateway-main-c7624a5.zuplo.site",
+              contactEmail: "founder@delentia.com",
+            },
+            servers: [
+              {
+                id: "delentia-intent-loop",
+                name: "Delentia Intent Loop",
+                transport: { type: "streamable-http", url: `${url.origin}/mcp` },
+                tools: ["run_intent_loop"],
+              },
+            ],
+          }),
+          { headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+
+      if (url.pathname === "/rctdb/query" && request.method === "GET") {
+        // The reverse direction of the bridge: a Python service (or
+        // anything else) can query this TS kernel's own RCTDB audit log
+        // over real HTTP, instead of only ever being synced INTO from the
+        // TS side. Requires a shared secret (BRIDGE_API_KEY, set via
+        // `wrangler secret put BRIDGE_API_KEY` — never committed) since
+        // RCTDB log entries can contain real intent text and FDIA scores,
+        // not public data. Unset BRIDGE_API_KEY (e.g. no deployment has
+        // configured it yet) means this route always returns 501, not a
+        // silent bypass of auth.
+        if (!env.BRIDGE_API_KEY) {
+          return new Response(JSON.stringify({ error: "Reverse bridge not configured on this deployment (BRIDGE_API_KEY unset)" }), {
+            status: 501,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const providedKey = request.headers.get("x-bridge-api-key");
+        if (providedKey !== env.BRIDGE_API_KEY) {
+          recordBridgeOutcome("reverseRctdbQuery", false);
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        if (!env.RCTDB_LOG_DO) {
+          return new Response(JSON.stringify({ error: "RCTDB_LOG_DO binding not configured" }), {
+            status: 501,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const sessionId = url.searchParams.get("session_id");
+        if (!sessionId) {
+          recordBridgeOutcome("reverseRctdbQuery", false);
+          return new Response(JSON.stringify({ error: "session_id query parameter is required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        const doId = env.RCTDB_LOG_DO.idFromName(sessionId);
+        const stub = env.RCTDB_LOG_DO.get(doId);
+        const doResponse = await stub.fetch(`http://rctdb/all`);
+        const entries = await doResponse.json();
+        recordBridgeOutcome("reverseRctdbQuery", true);
+        return new Response(JSON.stringify({ session_id: sessionId, entries }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+
+      if (url.pathname === "/mcp" && request.method === "POST") {
+        const body: any = await request.json();
+
+        if (body.method === "initialize") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: { listChanged: false } },
+                serverInfo: { name: "delentia-intent-loop", version: "0.1.0" },
+              },
+            }),
+            { headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+
+        if (body.method === "notifications/initialized") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, result: {} }), {
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        if (body.method === "resources/list" || body.method === "prompts/list" || body.method === "triggers/list") {
+          const key = body.method.split("/")[0];
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, result: { [key]: [] } }), {
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+
+        if (body.method === "tools/call" || body.tool === "run_intent_loop" || body.intent) {
+          if (!env.OPENROUTER_API_KEY) {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id ?? 1,
+                error: { code: -32000, message: "OPENROUTER_API_KEY is not configured on this Worker — cannot execute or verify (fails closed, no fabricated response)." },
+              }),
+              { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
+            );
+          }
+
+          const args = body.params?.arguments || body.params || body;
+          const packet: IntentPacket = {
+            intent: String(args.intent ?? ""),
+            context: args.context ?? {},
+            user_id: args.user_id,
+            session_id: args.session_id,
+            priority: args.priority,
+          };
+
+          const engine = getEngine(env.OPENROUTER_API_KEY);
+          const rctdbSessionId = packet.session_id ?? "default";
+          const result = await engine.process(packet, {
+            persistentStep: env.MEE_SESSION_DO
+              ? (delta, governanceViolation) => stepMeeGrowth(env, rctdbSessionId, delta, governanceViolation)
+              : undefined,
+          });
+
+          ctx.waitUntil(logToRctdb(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToGraphRag(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToVectorSearch(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(checkGeneratedCodeHalts(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(syncToGraphTraversal(env, rctdbSessionId, packet, result));
+          ctx.waitUntil(analyzeIntentLoopTradeoffs(env, rctdbSessionId, packet, result));
+
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] },
+            }),
+            { headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+
+        if (body.method === "tools/list") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 1,
+              result: {
+                tools: [
+                  {
+                    name: "run_intent_loop",
+                    description:
+                      "Runs a full intent through the Delentia Intent Loop: (1) the real, hardened FDIA gate rejects it before anything else happens if it fails the mathematical authorization check; (2) checks in-memory cache for a near-identical prior intent (Jaccard similarity > 0.95) and returns instantly on a hit; (3) on a miss, routes to a real free-tier model via OpenRouter based on keyword-detected role (code/vision/fast/general) and makes a real API call; (4) asks 3 different real models to independently vote yes/no on whether the output plausibly addresses the intent, and requires a real majority — a model that errors contributes no vote, never counted as agreement; (5) commits verified results back to memory. USE WHEN: you want every model call gated by FDIA and cross-checked by independent models before trusting the result. DO NOT USE WHEN: you need guaranteed low latency (this makes 1-4 real network calls to third-party model providers, each with real network variance) or when OPENROUTER_API_KEY is not configured (this tool fails closed with a real error rather than fabricating a response).",
+                    inputSchema: {
+                      type: "object",
+                      properties: {
+                        intent: { type: "string", description: "The natural-language intent/task to process." },
+                        context: { type: "object", description: "Optional structured context (raises intent_precision in the FDIA gate check)." },
+                        user_id: { type: "string", description: "Optional caller identifier, included in output metadata only (not yet used for per-caller memory scoping — see known limitations)." },
+                        session_id: { type: "string", description: "Optional session identifier, included in output metadata only (not yet used for per-caller memory scoping — see known limitations)." },
+                      },
+                      required: ["intent"],
+                    },
+                    outputSchema: {
+                      type: "object",
+                      properties: {
+                        state: { type: "string", enum: ["completed", "failed"] },
+                        output: { type: "object", description: "Specialist model output, present only on completed state." },
+                        error: { type: "string", description: "Present only on failed state — real reason: FDIA rejection, all candidate models failing, or verification consensus failing." },
+                        cache_hit: { type: "boolean" },
+                        verification: { type: "object", description: "Real per-model vote breakdown, present when the loop reached the verify stage." },
+                        fdia_score: { type: "number" },
+                        latency_ms: { type: "number" },
+                      },
+                      required: ["state", "latency_ms", "cache_hit"],
+                    },
+                    annotations: { audience: ["user", "assistant"], priority: 0.7, readOnlyHint: false },
+                  },
+                ],
+              },
+            }),
+            { headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "Method not found" } }),
+          { status: 404, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response("Endpoint Not Found", { status: 404 });
+    } catch (err: any) {
+      await captureException(err, { serverName, environment: env.ENVIRONMENT, url: request.url }, env.SENTRY_DSN);
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: err?.message || "Internal server error" } }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+  },
+};

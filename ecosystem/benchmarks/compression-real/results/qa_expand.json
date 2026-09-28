@@ -1,0 +1,53 @@
+{
+ "model": "qwen2.5:7b",
+ "results": [
+  {
+   "question_id": "docs-p1",
+   "search_terms": "Zuplo Stripe",
+   "lines_retrieved": 16,
+   "evidence_retrieved": true,
+   "reply": "The paid subscription costs 29 USD per month.",
+   "correct": true,
+   "tokens_compressed": 495,
+   "tokens_retrieved": 337,
+   "tokens_full": 2203,
+   "total_vs_full_pct": 37.8
+  },
+  {
+   "question_id": "docs-p2",
+   "search_terms": "inspector port",
+   "lines_retrieved": 13,
+   "evidence_retrieved": false,
+   "reply": "NOT FOUND.",
+   "correct": false,
+   "tokens_compressed": 890,
+   "tokens_retrieved": 264,
+   "tokens_full": 2203,
+   "total_vs_full_pct": 52.4
+  },
+  {
+   "question_id": "log-p1",
+   "search_terms": "Ed25519 verifyJitnaPacket",
+   "lines_retrieved": 17,
+   "evidence_retrieved": true,
+   "reply": "NOT FOUND.",
+   "correct": false,
+   "tokens_compressed": 3014,
+   "tokens_retrieved": 578,
+   "tokens_full": 6979,
+   "total_vs_full_pct": 51.5
+  },
+  {
+   "question_id": "log-p2",
+   "search_terms": "Delta Engine",
+   "lines_retrieved": 40,
+   "evidence_retrieved": true,
+   "reply": "NOT FOUND.",
+   "correct": false,
+   "tokens_compressed": 1218,
+   "tokens_retrieved": 1210,
+   "tokens_full": 6979,
+   "total_vs_full_pct": 34.8
+  }
+ ]
+}

@@ -1,0 +1,123 @@
+# RCT-7 `verified_alignment_score` — Scoring Spec
+
+This is the first concrete spec for how `rct_think`'s alignment score is
+computed. It did not exist anywhere in the ecosystem before 2026-09-11 — the
+whitepaper (`Delentia-OS/whitepapers/01_foundation/RCT_ECOSYSTEM_WHITEPAPER_TH_2026.md`
+§4.1) gives one line per stage with no formula, and the "reference
+implementation" it points to (a non-public Python module)
+is a typed skeleton with a hardcoded `intent_match_score: 0.95`. Neither
+specifies an actual algorithm. This document is that algorithm.
+
+## What this is, and what it is not
+
+This is a **deterministic heuristic**, computed entirely inside the
+Cloudflare Worker with no external LLM calls. It measures three
+*structural* properties of the request — how much context was supplied, how
+specific the stated problem is, and how much vocabulary the stated goal
+shares with the stated problem. It does **not** understand meaning. A
+request can score high while still being reasoned about incorrectly, and can
+score low while being handled correctly with little context. Treat the score
+as a **confidence signal about how well-grounded the input was**, not a
+correctness guarantee.
+
+A v2 option — real multi-model consensus scoring via an LLM jury (the
+pattern already implemented, unused, in `Delentia-OS/rct_control_plane/openrouter_client.py`)
+— would have materially higher fidelity but adds latency, cost, and an
+external API-key dependency to what is otherwise a self-contained guardrail
+tool. That tradeoff is deferred; see `ROADMAP.md`.
+
+## Formula
+
+Implemented in `packages/rct7/src/index.ts` (`computeAlignmentScore`).
+
+```
+grounding_completeness = 0.5 * has(environment_context) + 0.5 * has(target_desired_outcome)   // in [0, 1]
+problem_specificity    = clamp(word_count(problem_statement) / 12, 0, 1)
+lexical_alignment      = jaccard(tokens(problem_statement), tokens(target_desired_outcome))     // 0 if target_desired_outcome absent
+
+verified_alignment_score = round4(clamp(
+  0.30 * grounding_completeness +
+  0.30 * problem_specificity +
+  0.40 * lexical_alignment,
+  0, 1
+))
+```
+
+- `has(x)` — 1 if the field was supplied and non-empty after trimming, else 0.
+- `word_count` — whitespace-split token count of `problem_statement`.
+- `tokens(text)` — lowercased, split on non-alphanumeric (ASCII + Thai range), words of length > 2 only, deduplicated into a set.
+- `jaccard(A, B) = |A ∩ B| / |A ∪ B|` (0 if both sets are empty).
+
+Weights (0.30 / 0.30 / 0.40) favor lexical alignment slightly, since a target
+that shares no vocabulary with the stated problem is the strongest single
+signal that reverse reasoning may be anchored on the wrong thing.
+
+## Worked examples
+
+Computed directly from the shipped `computeAlignmentScore()` (verified by
+running the compiled function, not hand-calculated):
+
+| `problem_statement` | `environment_context` | `target_desired_outcome` | grounding | specificity | lexical | **score** |
+|---|---|---|---|---|---|---|
+| `"fix it"` | — | — | 0.0000 | 0.1667 | 0.0000 | **0.0500** |
+| `"Reduce checkout API p99 latency below 200ms"` | `"Node.js, 3 replicas, Redis cache"` | `"p99 latency under 200ms sustained for 24h"` | 1.0000 | 0.5833 | 0.2727 | **0.5841** |
+| `"Reduce checkout API p99 latency"` | — | `"Ship a mobile app redesign"` | 0.5000 | 0.4167 | 0.0000 | **0.2750** |
+
+The third row shows the intended failure mode: a stated target with no
+lexical relationship to the stated problem drags the score down even though
+`grounding_completeness` isn't zero — this is the "target may not be
+grounded in the problem as described" signal this spec exists to surface.
+Row 2 also shows that a fully-grounded, on-target request still lands
+mid-range (0.58) rather than near 1.0 — `problem_specificity` saturates at 12
+words, so most real single-sentence requests will not score near the
+ceiling; treat scores as relative/comparative, not as a pass/fail threshold
+against some fixed number.
+
+## Known limitations (stated plainly)
+
+- Purely lexical — synonyms, paraphrases, and non-English/non-Thai phrasing beyond the tokenizer's ranges are not credited.
+- `problem_specificity` rewards verbosity, not clarity — a long vague statement scores the same as a long precise one.
+- No cross-request memory or actual verification against ground truth; this cannot detect hallucination in the *content* of the 7 stage outputs, only in whether the request itself was well-formed.
+- Stages 1-6 (see below) are now also data-driven, but via shallow regex/keyword heuristics, not real language understanding — a sentence splitter, a conjunction-based clause splitter, a fixed 4-category failure-keyword taxonomy, and shared-vocabulary keyword extraction. None of these "understand" the request; they report structural properties of the text.
+
+## Stages 1-6: what became data-driven on 2026-09-11
+
+Previously, stages 1-6 were fixed prose that never changed regardless of input (only stage 7's score varied). All 6 now compute real, input-dependent output:
+
+| Stage | Real signal computed | Function |
+|---|---|---|
+| 1. OBSERVE | Splits `problem_statement` + `environment_context` into sentence/clause units on `.`/`!`/`?`/`;`/newlines (period-splitting skips mid-word periods like "Node.js") and reports the actual count and text of each | `splitSentences` |
+| 2. ANALYZE | Jaccard lexical overlap between `environment_context` and `problem_statement` — reports the real ratio, or explicitly says no context was supplied | reuses `jaccardSimilarity` |
+| 3. DECONSTRUCT | Splits `problem_statement` into sub-tasks on commas/semicolons/conjunctions ("and", "then", "while", "after", "before", "so that") | `extractSubtasks` |
+| 4. REVERSE REASONING | Matches `problem_statement` + target text against a fixed 4-category keyword taxonomy (`security`, `resource`, `state`, `data_quality`) — reports only categories that actually matched, not a fixed count | `detectFailureCategories` |
+| 5. IDENTIFY CORE INTENT | Extracts content words from `problem_statement` that also appear in `target_desired_outcome` (or falls back to the first content words of `problem_statement` alone) | `extractCoreIntentTerms` |
+| 6. RECONSTRUCT | Orders the Stage 3 sub-tasks against the Stage 5 core-intent terms into an explicit numbered blueprint, referencing any Stage 4 failure categories as mitigations to address | inline in `executeRCT7` |
+
+All three new extraction functions (`extractSubtasks`, `detectFailureCategories`, `extractCoreIntentTerms`) are exported from `packages/rct7/src/index.ts` and covered by a dedicated regression test in `tests/ecosystem.test.mjs` ("RCT-7 - all 7 stages are data-driven, not fixed templates") asserting that two different inputs produce different output on every one of the 6 stages, plus a specific regression test for the "Node.js" mid-word-period bug caught during manual verification.
+
+## Change log
+
+- 2026-09-11 — Initial spec (stage 7 score only). Replaces the previous hardcoded `verified_alignment_score = 1.0`.
+- 2026-09-11 — Stages 1-6 made data-driven (see table above). Replaces the previous fixed prose, including a hardcoded "3 critical failure paths" claim at Stage 4 that no longer reflects a fixed number.
+
+## The RCT-7 implementation landscape across the ecosystem (audited 2026-09-14)
+
+This TS implementation is not the only one. A 2026-09-14 grep audit across
+both codebases found **four files touching RCT-7**, not one canonical
+implementation with ports — worth documenting precisely rather than
+leaving readers to assume there's a single source of truth:
+
+| # | File | Runtime | Status | Live? |
+|---|---|---|---|---|
+| 1 | `packages/rct7/src/index.ts` (this repo) | Cloudflare Workers (TS) | **Real** — deterministic heuristic per this spec, tested (159/159 TS tests pass as of 2026-09-14) | **Yes** — wired into `intent-loop`, `sovereign`, and the standalone `fdia` worker |
+| 2–4 | non-public Python services | Python | One LLM-backed implementation (real, with a labelled heuristic fallback), one partially placeholder implementation with its own tests, and one unused duplicate | Internal; details are not published |
+
+**Decision (2026-09-14): do not attempt to "unify" these into one codebase.**
+#1 and the LLM-backed Python implementation are necessarily separate — a
+Cloudflare Worker and a Python FastAPI service don't share a runtime, the
+same reason `tests/fdia_contract.test.mjs` exists to catch behavioral drift
+between the TS and Python FDIA implementations rather than trying to merge
+them. That is an acceptable, disclosed duplication, not a defect. Replacing
+the placeholder steps of the partial implementation with real reasoning is
+tracked internally. Nothing is deleted per the workspace's Immutable
+Zero-Delete Policy.
