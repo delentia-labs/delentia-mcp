@@ -88,6 +88,18 @@ test("calls naming the audit key or the audit log never reach the server, even i
   assert.equal(JSON.parse(lines[0]).rule, "GUARD_PROTECTED_PATH");
 });
 
+test("relative paths to the key or the log are refused too (the server resolves them itself)", () => {
+  const { g } = signedGuard();
+  for (const [i, args] of [
+    [1, { path: "guard.pem" }],
+    [2, { path: "../keys/GUARD.pem" }],
+    [3, { command: "tail -n 5 .delentia/guard-audit.jsonl" }],
+  ]) {
+    assert.equal(g.inspect(call(i, "read_file", args)).forward, false, JSON.stringify(args));
+  }
+  assert.equal(g.inspect(call(9, "read_file", { path: "src/guard.ts" })).forward, true);
+});
+
 test("unsigned guards keep the previous format and still verify", () => {
   const lines = [];
   const g = new Guard({ audit: (l) => lines.push(l) });

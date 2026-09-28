@@ -115,6 +115,10 @@ delentia-guard --head ~/.delentia/guard-audit.jsonl    # entry count + last hash
 
 - While signing is on, any tool call whose arguments name the key file or the audit log is refused
   (in monitor mode too), so the agent cannot read the key or edit the log through the proxied server.
+  The bare file names are matched as well (`guard-audit.pem`, `guard-audit.jsonl`), because the
+  server resolves relative paths itself. This is a substring check, not a sandbox: a glob such as
+  `*.pem` or a shell that builds the name at runtime can still get past it, so keep the key outside
+  every directory the proxied server can reach and keep shell tools blocked.
 - Keep the public key somewhere the agent cannot change (your notes, the team wiki).
 - Publish `--head` output outside the machine from time to time (a chat message, a commit in
   another repo). Without that, someone who has the key or root on the machine could rewrite the

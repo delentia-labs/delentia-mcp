@@ -94,9 +94,12 @@ export class Guard {
     if (opts.auditSigningKey) {
       this.signKey = createPrivateKey(opts.auditSigningKey.privateKeyPem);
       this.signKeyId = opts.auditSigningKey.keyId;
-      this.protectedPaths = (opts.auditSigningKey.protectedPaths ?? [])
-        .map(normalisePath)
-        .filter((p) => p.length > 0);
+      const full = (opts.auditSigningKey.protectedPaths ?? []).map(normalisePath).filter((p) => p.length > 0);
+      // Also the bare file names: the proxied server resolves relative paths ("guard.pem",
+      // "../keys/guard.pem") against its own working directory, so matching only the absolute
+      // path let a relative read of the key through (found by the 0.1.0 pre-publish smoke test).
+      const names = full.map((p) => p.slice(p.lastIndexOf("/") + 1)).filter((n) => n.length >= 3);
+      this.protectedPaths = [...new Set([...full, ...names])];
     }
   }
 
