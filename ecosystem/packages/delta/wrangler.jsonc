@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delentia-delta-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-02-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DELTA_SESSION_DO",
+        "class_name": "DeltaSessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DeltaSessionDO"]
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "SERVER_NAME": "Delentia Delta Engine MCP"
+  }
+}

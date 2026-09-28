@@ -1,0 +1,30 @@
+{
+ "model": "qwen2.5:7b",
+ "mode": "v2_outline",
+ "results": [
+  {
+   "question_id": "docs-p2",
+   "search_terms": "lines 120-140",
+   "lines_retrieved": 21,
+   "evidence_retrieved": true,
+   "reply": "http://localhost:8787/mcp",
+   "correct": true,
+   "tokens_compressed": 1120,
+   "tokens_retrieved": 215,
+   "tokens_full": 2203,
+   "total_vs_full_pct": 60.6
+  },
+  {
+   "question_id": "log-p2",
+   "search_terms": "lines 30-35",
+   "lines_retrieved": 6,
+   "evidence_retrieved": true,
+   "reply": "The context compression package had the release number 1.1.0.",
+   "correct": true,
+   "tokens_compressed": 1822,
+   "tokens_retrieved": 68,
+   "tokens_full": 6979,
+   "total_vs_full_pct": 27.1
+  }
+ ]
+}

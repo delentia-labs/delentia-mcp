@@ -1,0 +1,193 @@
+{
+  "_about": "Each question's answer is verifiably present in the FULL corpus. `evidence` is a regex that must still match the (possibly compressed) context for the answer to be recoverable at all (deterministic retention check). `answer` is a regex applied to an LLM's reply (QA accuracy check). Questions were written before any compression was run. Questions marked paraphrase:true deliberately avoid the literal keywords of their evidence line, to test lexical-filter failure modes.",
+  "corpora": {
+    "code": {
+      "file": "corpora/intent_loop_index.ts.txt",
+      "kind": "TypeScript source (packages/intent-loop/src/index.ts snapshot)",
+      "questions": [
+        {
+          "id": "code-1",
+          "q": "What is the default maxIntentLength in the gatekeeper config?",
+          "evidence": "maxIntentLength: 1000",
+          "answer": "1,?000"
+        },
+        {
+          "id": "code-2",
+          "q": "Which forbidden keywords does the default gatekeeper config block?",
+          "evidence": "forbiddenKeywords: \\[\"hack\", \"exploit\", \"bypass\"\\]",
+          "answer": "(?=.*hack)(?=.*exploit)(?=.*bypass)"
+        },
+        {
+          "id": "code-3",
+          "q": "What is the default fdiaThreshold value?",
+          "evidence": "fdiaThreshold: 0\\.25",
+          "answer": "0\\.25"
+        },
+        {
+          "id": "code-4",
+          "q": "What Jaccard similarity score must a cached memory exceed to count as a semantic cache hit?",
+          "evidence": "score > 0\\.95",
+          "answer": "0\\.95"
+        },
+        {
+          "id": "code-5",
+          "q": "What word limit does the specialist system prompt ask the model to stay under?",
+          "evidence": "under 120 words",
+          "answer": "120"
+        },
+        {
+          "id": "code-6",
+          "q": "Which model is listed first in VERIFIER_MODELS?",
+          "evidence": "VERIFIER_MODELS = \\[\"liquid/lfm-2\\.5-2\\.6b:free\"",
+          "answer": "lfm-2\\.5"
+        },
+        {
+          "id": "code-p1",
+          "paraphrase": true,
+          "q": "How long may a request be before the gate rejects it as too long?",
+          "evidence": "maxIntentLength: 1000",
+          "answer": "1,?000"
+        },
+        {
+          "id": "code-p2",
+          "paraphrase": true,
+          "q": "Which words cause a request to be refused outright?",
+          "evidence": "forbiddenKeywords: [\"hack\", \"exploit\", \"bypass\"]",
+          "answer": "(?=.*hack)(?=.*exploit)(?=.*bypass)"
+        },
+        {
+          "id": "code-p3",
+          "paraphrase": true,
+          "q": "How similar must two requests be for the stored answer to be reused?",
+          "evidence": "score > 0.95",
+          "answer": "0.95|95"
+        },
+        {
+          "id": "code-p4",
+          "paraphrase": true,
+          "q": "What share of responding judges must agree for an output to be accepted?",
+          "evidence": "consensusThreshold = 0.5",
+          "answer": "0.5|50|half|majority"
+        }
+      ]
+    },
+    "log": {
+      "file": "corpora/build_and_test_run.log",
+      "kind": "Real build + test log (npm run build && npm run test:all output, this repo)",
+      "questions": [
+        {
+          "id": "log-1",
+          "q": "Which version of @delentia/mcp-delta was built?",
+          "evidence": "@delentia/mcp-delta@1\\.1\\.0",
+          "answer": "1\\.1\\.0"
+        },
+        {
+          "id": "log-2",
+          "q": "Which version of @delentia/mcp-intent-loop was built?",
+          "evidence": "@delentia/mcp-intent-loop@0\\.1\\.0",
+          "answer": "0\\.1\\.0"
+        },
+        {
+          "id": "log-3",
+          "q": "In the Ed25519 tests, what happens when a signature is verified against the wrong public key?",
+          "evidence": "WRONG public key fails",
+          "answer": "fail"
+        },
+        {
+          "id": "log-4",
+          "q": "In the IntentLoopEngine tests, how many YES and NO votes were in the minority/split vote case?",
+          "evidence": "1 YES, 2 NO",
+          "answer": "(?=.*\\b1\\b)(?=.*\\b2\\b)"
+        },
+        {
+          "id": "log-5",
+          "q": "Which version of @delentia/shared was built?",
+          "evidence": "@delentia/shared@1\\.2\\.0",
+          "answer": "1\\.2\\.0"
+        },
+        {
+          "id": "log-p1",
+          "paraphrase": true,
+          "q": "Does checking a signature with a different person key get rejected?",
+          "evidence": "WRONG public key fails",
+          "answer": "fail|reject|yes"
+        },
+        {
+          "id": "log-p2",
+          "paraphrase": true,
+          "q": "What release number did the context compression package have?",
+          "evidence": "@delentia/mcp-delta@1.1.0",
+          "answer": "1.1.0"
+        }
+      ]
+    },
+    "docs": {
+      "file": "corpora/readme_snapshot.md",
+      "kind": "Project README (Thai/English mixed Markdown snapshot)",
+      "questions": [
+        {
+          "id": "docs-1",
+          "q": "What is the monthly price of the commercial gateway plan?",
+          "evidence": "29 USD",
+          "answer": "29"
+        },
+        {
+          "id": "docs-2",
+          "q": "Which localhost port does the local MCP endpoint use for testing?",
+          "evidence": "localhost:8787",
+          "answer": "8787"
+        },
+        {
+          "id": "docs-3",
+          "q": "What is the npm package name of the Delta Engine?",
+          "evidence": "@delentia/mcp-delta",
+          "answer": "@delentia/mcp-delta"
+        },
+        {
+          "id": "docs-4",
+          "q": "Which path is used for the legacy SSE transport?",
+          "evidence": "\\(`/sse`\\)",
+          "answer": "/sse"
+        },
+        {
+          "id": "docs-5",
+          "q": "What are the four JITNA pillars that work is distributed to?",
+          "evidence": "Router, Guardian, Executor, Scribe",
+          "answer": "(?=.*Router)(?=.*Guardian)(?=.*Executor)(?=.*Scribe)"
+        },
+        {
+          "id": "docs-p1",
+          "paraphrase": true,
+          "q": "How much does the paid subscription cost each month?",
+          "evidence": "29 USD",
+          "answer": "29"
+        },
+        {
+          "id": "docs-p2",
+          "paraphrase": true,
+          "q": "When running on my own machine, which port do I point the inspector at?",
+          "evidence": "localhost:8787",
+          "answer": "8787"
+        }
+      ]
+    },
+    "synthetic": {
+      "file": "@generated:haystack",
+      "kind": "SYNTHETIC best case: the pre-existing tests/benchmark_delta_vs.mjs haystack (10 repeating log lines + 5 needles). Included only to show where the old 99% figure came from.",
+      "questions": [
+        {
+          "id": "syn-1",
+          "q": "Which database cluster and port was the connection pool allocated to?",
+          "evidence": "pg-cluster-us-east-1a at port 5432",
+          "answer": "5432"
+        },
+        {
+          "id": "syn-2",
+          "q": "What balance did the audit checkpoint ledger reconcile?",
+          "evidence": "1,250,000 USD",
+          "answer": "1,?250,?000"
+        }
+      ]
+    }
+  }
+}

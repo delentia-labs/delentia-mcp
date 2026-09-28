@@ -1,0 +1,134 @@
+---
+description: Official Developer Portal & Technical Documentation for the Delentia OS Model Context Protocol (MCP) Ecosystem.
+sidebar_label: Overview & Quick Start
+sidebar_icon: shield-check
+category: ""
+---
+
+<div>
+  <img src="/banner.svg" className="dark:hidden" />
+  <img src="/banner-dark.svg" className="hidden dark:block" />
+</div>
+
+# Delentia OS — Sovereign AI Operating System & Security MCPs
+
+ยินดีต้อนรับสู่นักพัฒนา สถาปนิกซอฟต์แวร์ และผู้นำทางเทคโนโลยีทุกท่านเข้าสู่ **Delentia OS MCP Developer Portal** 🌐
+
+Delentia OS คือระบบปฏิบัติการปัญญาประดิษฐ์ระดับ **Sovereign AI** แห่งแรกของโลก ที่เปลี่ยนการควบคุมความปลอดภัยของ Agentic AI จากระบบความน่าจะเป็น (Probabilistic LLMs) ให้กลายเป็น **"ระบบคณิตศาสตร์เด็ดขาดที่พิสูจน์ได้ (Deterministic Safety & Preemption)"**
+
+:::tip **สถาปัตยกรรมระดับ Global Edge**
+เซิร์ฟเวอร์ Delentia ทั้งหมดทำงานอยู่บน Cloudflare Workers V8 Isolates เครือข่าย Edge กว่า 330 เมืองทั่วโลก พร้อมขุมพลัง **Durable Objects (SQLite)** ให้ความเร็วการตอบสนองระดับ Microseconds (Cold Start 0 - 5ms) รองรับการเชื่อมต่อแบบ Dual-Transport ทั้ง **Streamable HTTP (`/mcp`)** และ **Server-Sent Events (`/sse`)**
+:::
+
+---
+
+## 💎 4 เสาหลักแห่งระบบนิเวศ Delentia MCP (The Core Engines)
+
+ระบบนิเวศ Delentia OS ประกอบด้วย 4 เซิร์ฟเวอร์อัจฉริยะที่พร้อมปลดล็อกให้ระบบ AI ของคุณทำงานได้อย่างไร้รอยต่อ:
+
+### 1. 🛡️ Delentia FDIA Security Gate (`/mcp/fdia`)
+ด่านตรวจความมั่นคงเชิงคณิตศาสตร์ผ่านสมการแกนกลาง **F = (D^I) * A**
+- **Zero-Auth Cutoff:** หากระบบตรวจพบว่าไม่ได้รับการอนุมัติ (A = 0) การกระทำนั้นจะถูกตัดสิทธิ์ทางกายภาพทันที โดยค่าความปลอดภัยจะถูกบังคับให้กลายเป็น **F = 0.0000** ทันที ไม่ว่าข้อมูลหรือความมั่นใจของโมเดลจะสูงเพียงใด
+- **Enterprise Custom Policy:** องค์กรรองรับการกำหนด Blacklist คำสั่งต้องห้าม (`*drop*`, `*truncate*`), กฎจำกัดสิทธิ์ตามบทบาท (RBAC) และกฎอนุมัติคู่ Dual-Signoff
+- **Audit Digest:** ประทับตรารหัสลับดิจิทัล **SHA-256 Digest** ในทุกคำขอ ป้องกันการปลอมแปลงประวัติย้อนหลัง 100%
+
+### 2. 🧠 Delentia RCT-7 Mental OS (`/mcp/rct7`)
+ท่อกระบวนการคิดย้อนกลับ 7 ขั้นตอน (**Reverse Component Thinking**) เพื่อสกัดอาการเพ้อเจ้อ (Zero Hallucination Guarantee):
+1. **Observe (สังเกต):** รวบรวมบริบทและสัญญาณข้อมูลดิบโดยไม่ด่วนสรุป
+2. **Analyze (วิเคราะห์):** ตรวจสอบโครงสร้าง ความสัมพันธ์ และข้อจำกัดเชิงระบบ
+3. **Deconstruct (แยกส่วน):** สลายปัญหาออกเป็นชิ้นส่วนย่อยเชิงปรมาณู (Atomic Components)
+4. **Reverse Reasoning (คิดย้อนกลับ):** ย้อนจากผลลัพธ์ล้มเหลวกลับมายังจุดตั้งต้น (Failure State Inversion)
+5. **Identify Core Intent (ระบุเจตนาหลัก):** ตกผลึกเจตนาแท้จริงที่ไม่ถูกรบกวนด้วยสมมติฐาน
+6. **Reconstruct (สร้างใหม่):** สังเคราะห์โซลูชันขึ้นใหม่ภายใต้เจตนาบริสุทธิ์
+7. **Compare with Intent (เปรียบเทียบกับเจตนา):** ตรวจสอบความถูกต้องแบบ 100% Alignment Proof
+
+### 3. 📉 Delentia Delta Engine (`/mcp/delta`)
+ระบบบีบอัดบริบท (Context Compression) บนหลักการ **State Differential**
+- สกัดเฉพาะผลต่างของสถานะ (Diffs) และตัดข้อความซ้ำซ้อนทิ้งแบบเรียลไทม์
+- ลดปริมาณการใช้ Token และประหยัดหน่วยความจำ VRAM ลงถึง **74.2% - 91.5%** เหมาะอย่างยิ่งสำหรับ Agentic Workflows ที่ต้องรันคำสั่งข้ามคืน
+
+### 4. 🐝 Delentia JITNA Swarm Orchestrator (`/mcp/jitna`)
+ผู้จัดสรรและกระจายภารกิจแบบ **1+N Multi-Agent Swarm** ตามมาตรฐานสากล **RFC-001 Packet [I, D, Delta, A, R, M]**
+- สับเปลี่ยนโมเดลเฉพาะทาง 4 เสาหลัก (**Router, Guardian, Executor, Scribe**) ภายในเวลา Sub-1.06ms
+- ทำหน้าที่เป็นสมองแกนกลางเชื่อมต่อไปยัง Fleet โมเดลภายนอก (Claude 3.7 Sonnet, GPT-4o, DeepSeek R1 หรือ Local LoRAs)
+
+---
+
+## 🚀 เริ่มต้นเชื่อมต่อใช้งาน (Quick Start Guide)
+
+<Stepper>
+
+1. **รับ API Key ประจำตัว**
+
+   เข้าสู่ระบบ Zuplo Developer Portal ของคุณ จากนั้นไปที่เมนู **API Keys** เพื่อสร้าง Consumer ประจำตัวคุณ และคัดลอกกุญแจลับระดับ Master (`zpka_...`)
+
+   :::caution การรักษาความลับของ API Key
+   API Key มีสิทธิ์ในการเข้าถึงและเรียกใช้งาน Resource ทั้งหมดบน Gateway โปรดเก็บรักษาเป็นความลับ ห้ามคอมมิตขึ้น Public Repository เด็ดขาด
+   :::
+
+2. **ติดตั้งสะพานเชื่อม `mcp-remote`**
+
+   เนื่องจาก Claude Desktop และ Cursor รองรับการยืนยันตัวตนระยะไกลผ่าน Remote Wrapper คุณสามารถใช้งานผ่าน `npx -y mcp-remote` ได้ทันทีโดยไม่ต้องติดตั้ง Library ใดๆ ลงในเครื่อง
+
+3. **กำหนดค่าคอนฟิกใน Client ของคุณ**
+
+   นำการตั้งค่าด้านล่างนี้ไปวางในไฟล์ `claude_desktop_config.json` หรือ `mcp.json` ของ Cursor IDE:
+
+   ```json
+   {
+     "mcpServers": {
+       "delentia-fdia": {
+         "command": "npx",
+         "args": [
+           "-y",
+           "mcp-remote",
+           "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/fdia"
+         ],
+         "env": {
+           "AUTH_TOKEN": "zpka_your_api_key_here"
+         }
+       },
+       "delentia-rct7": {
+         "command": "npx",
+         "args": [
+           "-y",
+           "mcp-remote",
+           "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/rct7"
+         ],
+         "env": {
+           "AUTH_TOKEN": "zpka_your_api_key_here"
+         }
+       }
+     }
+   }
+   ```
+
+4. **ทดสอบยิงคำสั่งแรกผ่าน AI Chat**
+
+   เปิดหน้าต่างแชทใน Cursor, Claude Desktop หรือ Google Antigravity แล้วสั่งงาน AI:
+   > *"ช่วยใช้ delentia-fdia ประเมินความปลอดภัยของคำสั่ง 'deploy_hotfix' ให้หน่อย"*
+
+   คุณจะเห็น AI เรียกเครื่องมือและส่งผลลัพธ์ความปลอดภัยทางคณิตศาสตร์กลับมาในเวลาไม่กี่มิลลิวินาที!
+
+</Stepper>
+
+---
+
+## 💳 โครงสร้างราคาและแพ็กเกจการใช้งาน (Commercial Pricing)
+
+| แพ็กเกจ | ราคา | โควต้าคำสั่ง | คุณสมบัติเด่น |
+| :--- | :---: | :---: | :--- |
+| **Developer Tier** | **ฟรี** | 100 requests / เดือน | ทดสอบใช้งานใน Local Sandbox, เข้าถึงครบทั้ง 4 MCPs |
+| **Pro Tier** | **29 USD / เดือน** | 10,000 requests / เดือน | ชำระผ่าน Stripe อัตโนมัติ, ความเร็ว Global Edge SLA 99.99% |
+| **Enterprise Sovereign** | **ติดต่อฝ่ายขาย** | ไม่จำกัด (Unlimited) | ติดตั้งใน Private Air-Gapped Cloudflare Edge พร้อม B2B License |
+
+---
+
+## 🌐 ทดลองยิงคำสั่งบน Interactive API Reference
+
+คุณสามารถคลิกที่แท็บ **[API Reference](/api)** ด้านบน เพื่อทดลองกรอกพารามิเตอร์และกดปุ่ม **Test Request** ยิงคำสั่งเข้าสู่เซิร์ฟเวอร์ Delentia จริงบนคลาวด์ได้ทันทีโดยไม่ต้องเขียนโค้ดแม้แต่บรรทัดเดียว!
+
+---
+
+*ลิขสิทธิ์ถูกต้อง (c) 2026 Delentia Labs — พัฒนาและออกแบบสถาปัตยกรรมโดย **อิทธิฤทธิ์ แซ่โง้ว (Ittirit Saengow) — The Architect***  
+*ข้อมูลเพิ่มเติม: [https://delentia.com](https://delentia.com)*

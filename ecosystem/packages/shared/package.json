@@ -1,0 +1,26 @@
+{
+  "name": "@delentia/shared",
+  "version": "1.2.0",
+  "description": "Core FDIA scoring and policy engine, session Durable Objects, and JITNA packet definitions for Delentia OS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@cloudflare/workers-types": "^4.20250214.0"
+  }
+}

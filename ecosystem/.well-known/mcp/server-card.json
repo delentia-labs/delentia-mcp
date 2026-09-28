@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server-card.json",
+  "name": "Delentia OS MCP Ecosystem",
+  "version": "1.1.0",
+  "description": "Enterprise Intent-Centric MCP Ecosystem featuring FDIA Deterministic Security, Authentic RCT-7 Reverse Thinking, Delta Context Compression, and JITNA Swarm Orchestration.",
+  "vendor": {
+    "name": "Delentia Labs",
+    "url": "https://delentia.com",
+    "portalUrl": "https://delentia-gateway-main-c7624a5.zuplo.site",
+    "contactEmail": "founder@delentia.com"
+  },
+  "pricing": {
+    "model": "freemium",
+    "freeTier": "500 requests / month",
+    "proTier": "29 USD / month (10,000 requests)",
+    "teamTier": "149 USD / month (100,000 requests)",
+    "enterpriseTier": "Custom / Contact Sales (Unlimited)",
+    "currency": "USD"
+  },
+  "servers": [
+    {
+      "id": "delentia-fdia",
+      "name": "Delentia FDIA Security Gate",
+      "description": "Mathematical Deterministic Guardrail (F = D^I * A) that preempts adversarial tool invocations and ensures 100% human-in-the-loop auditability.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/fdia"
+      },
+      "tools": ["evaluate_fdia"]
+    },
+    {
+      "id": "delentia-rct7",
+      "name": "Delentia RCT-7 Thinking Engine",
+      "description": "7-Stage Reverse Component Thinking pipeline (Observe, Analyze, Deconstruct, Reverse Reasoning, Identify Core Intent, Reconstruct, Compare with Intent) to eliminate hallucination.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/rct7"
+      },
+      "tools": ["rct_think"]
+    },
+    {
+      "id": "delentia-delta",
+      "name": "Delentia Delta Context Compressor",
+      "description": "State differential compressor that deduplicates and (with an intent focus) keyword-filters verbose text. Token reduction is computed per-request from actual input, not a fixed guarantee.",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/delta"
+      },
+      "tools": ["compress_context"]
+    },
+    {
+      "id": "delentia-jitna",
+      "name": "Delentia JITNA Swarm Orchestrator",
+      "description": "Intent-driven multi-agent orchestrator dispatching JITNA packets across 1+4 Pillars LoRA (Router, Guardian, Executor, Scribe).",
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://delentia-gateway-main-04f1c03.zuplo.site/mcp/jitna"
+      },
+      "tools": ["orchestrate_swarm"]
+    }
+  ]
+}
