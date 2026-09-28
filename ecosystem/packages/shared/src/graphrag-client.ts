@@ -1,6 +1,6 @@
 /**
  * Real HTTP client for the Python GraphRAG service
- * (<private>/microservices/graphrag-complete), giving TypeScript
+ * (ALGO-13; the service itself is not public), giving TypeScript
  * Workers a genuine network path into that service's real (hashing-trick)
  * embeddings + semantic search, instead of the two stacks (this
  * TS/Cloudflare-Workers kernel and the Python microservices platform)

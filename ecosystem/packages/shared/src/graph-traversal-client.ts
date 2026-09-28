@@ -1,6 +1,6 @@
 /**
  * Real HTTP client for the Python Graph Traversal service
- * (<private>/microservices/graph-traversal — ALGO-17, audited real
+ * (ALGO-17; the service itself is not public, audited real
  * earlier this session: genuine BFS/DFS/Dijkstra/PageRank/Louvain +
  * real Neo4j Cypher queries). A third complementary real memory
  * backend: GraphRAG does content-fusion search, Vector Search does ANN

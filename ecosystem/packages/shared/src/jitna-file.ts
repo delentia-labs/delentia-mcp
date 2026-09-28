@@ -14,8 +14,7 @@
  * could read back.
  *
  * Also found: 254 pre-existing files already use the `.jitna` extension
- * elsewhere in the repo tree (the private services repo's private-UI intent-driven
- * UI templates) — a completely unrelated YAML-ish agent-template format
+ * elsewhere in the workspace (private intent-driven UI templates) — a completely unrelated YAML-ish agent-template format
  * (`intent`/`inputs`/`plan`/`output` keys), not this I/D/delta/A/R/M
  * packet. Renaming either format was judged out of scope (that other
  * format is live, tested, and deployed elsewhere) — instead, this format

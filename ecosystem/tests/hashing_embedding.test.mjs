@@ -55,9 +55,9 @@ test("hashingEmbedding: normalized to unit length for non-empty text", () => {
 });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GRAPHRAG_ENGINE_PY = path.resolve(
-  __dirname,
-  "../../the private services repo/<private>/microservices/graphrag-complete/app/core/graphrag_engine.py"
+const GRAPHRAG_ENGINE_PY = path.join(
+  process.env.DELENTIA_PRIVATE_SERVICES_DIR ? path.resolve(process.env.DELENTIA_PRIVATE_SERVICES_DIR) : path.join(__dirname, "__private_services_not_configured__"),
+  "graphrag-complete/app/core/graphrag_engine.py"
 );
 const PYTHON_AVAILABLE = fs.existsSync(GRAPHRAG_ENGINE_PY);
 

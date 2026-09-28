@@ -29,19 +29,19 @@ import { syncToGraphRag, bridgeMetrics } from "../packages/intent-loop/dist/work
 import { searchGraphragDocuments } from "../packages/shared/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// This test genuinely spans two separate repos (this TS ecosystem +
-// the private services repo's Python microservices), checked out as siblings
-// under the same parent directory on this machine. That's an inherent,
+// This test genuinely spans two separate codebases (this TS ecosystem +
+// the non-public Python GraphRAG service), located through
+// DELENTIA_PRIVATE_SERVICES_DIR. That's an inherent,
 // disclosed limitation of testing a cross-stack bridge for real rather
 // than mocking the far side - skip cleanly (not a confusing crash) if the
 // sibling repo isn't present, e.g. in a CI checkout of this repo alone.
-const GRAPHRAG_DIR = path.resolve(__dirname, "../../the private services repo/<private>/microservices/graphrag-complete");
+const GRAPHRAG_DIR = path.join(process.env.DELENTIA_PRIVATE_SERVICES_DIR ? path.resolve(process.env.DELENTIA_PRIVATE_SERVICES_DIR) : path.join(__dirname, "__private_services_not_configured__"), "graphrag-complete");
 const GRAPHRAG_AVAILABLE = fs.existsSync(path.join(GRAPHRAG_DIR, "app", "main.py"));
 const GRAPHRAG_PORT = 8013;
 const GRAPHRAG_BASE_URL = `http://127.0.0.1:${GRAPHRAG_PORT}`;
 
 if (!GRAPHRAG_AVAILABLE) {
-  console.log(`SKIPPING graphrag_bridge.test.mjs — the private services repo/<private>/microservices/graphrag-complete not found at ${GRAPHRAG_DIR} (expects sibling repo checkout)`);
+  console.log(`SKIPPING graphrag_bridge.test.mjs — GraphRAG service not found at ${GRAPHRAG_DIR} (set DELENTIA_PRIVATE_SERVICES_DIR)`);
 }
 
 async function waitForHealth(url, timeoutMs = 20000) {

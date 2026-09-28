@@ -5,7 +5,7 @@
  * Ported/added 2026-09-14 to close a gap found by architecture audit: the
  * deployed packages/jitna had zero cryptography (grep for Ed25519/
  * fingerprint returned nothing), and the Python side's own attempt
- * (<private>/microservices/jitna-gateway/main.py) is explicitly
+ * (a JITNA gateway service, not public) is explicitly
  * commented "(mock)" — a SHA-256 string prefix, not asymmetric signing,
  * with unsigned packets only warned about, never rejected.
  *

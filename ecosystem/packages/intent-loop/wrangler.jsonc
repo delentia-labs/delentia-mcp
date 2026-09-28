@@ -32,8 +32,8 @@
     // GRAPHRAG_BASE_URL, VECTOR_SEARCH_BASE_URL, VECTOR_SEARCH_DIMENSION,
     // HALTING_DETECTION_BASE_URL, GRAPH_TRAVERSAL_BASE_URL and
     // MOIP_PLANNER_BASE_URL are all deliberately left unset here: none of
-    // <private>/microservices/{graphrag-complete,vector-search,
-    // halting-detection,graph-traversal,moip-planner} has a public
+    // the GraphRAG, Vector Search, Halting Detection, Graph Traversal and
+    // MOIP Planner services has a public
     // deployment as of 2026-09-13, so there is no real URL to commit yet
     // for any of them. Set the relevant *_BASE_URL to a reachable
     // instance's base URL (e.g. a Cloudflare Tunnel to a local dev

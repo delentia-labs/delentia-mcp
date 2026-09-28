@@ -32,7 +32,8 @@ import { syncToVectorSearch, checkGeneratedCodeHalts } from "../packages/intent-
 import { searchTextAsVector, searchGraphragDocuments } from "../packages/shared/dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MICROSERVICES_DIR = path.resolve(__dirname, "../../the private services repo/<private>/microservices");
+// Set DELENTIA_PRIVATE_SERVICES_DIR to a local checkout of the (non-public) Python services to run this.
+const MICROSERVICES_DIR = process.env.DELENTIA_PRIVATE_SERVICES_DIR ? path.resolve(process.env.DELENTIA_PRIVATE_SERVICES_DIR) : path.join(__dirname, "__private_services_not_configured__");
 const SERVICES_AVAILABLE = fs.existsSync(path.join(MICROSERVICES_DIR, "vector-search", "app", "main.py"))
   && fs.existsSync(path.join(MICROSERVICES_DIR, "halting-detection", "app", "main.py"))
   && fs.existsSync(path.join(MICROSERVICES_DIR, "graphrag-complete", "app", "main.py"));

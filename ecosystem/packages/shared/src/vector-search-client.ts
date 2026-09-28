@@ -1,6 +1,6 @@
 /**
  * Real HTTP client for the Python Vector Search service
- * (<private>/microservices/vector-search — ALGO-16, a genuine FAISS/
+ * (ALGO-16, a genuine FAISS/
  * Qdrant-backed vector index, audited real earlier this session), giving
  * TypeScript Workers a second, complementary real memory backend
  * alongside GraphRAG (see graphrag-client.ts): GraphRAG does its own

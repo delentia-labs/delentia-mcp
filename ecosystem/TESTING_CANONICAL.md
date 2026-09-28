@@ -398,7 +398,7 @@ tests) — but no single FILE CONTAINER combining any of it existed, and
 nothing anywhere actually wrote a JITNA packet to disk as a file another
 agent could read back. The same research also found 254 pre-existing files
 already using the `.jitna` extension elsewhere in the repo
-(`the private services repo`'s private-UI intent-driven-UI agent templates) — a
+(private intent-driven-UI agent templates) — a
 completely unrelated YAML-ish format (`intent`/`inputs`/`plan`/`output`
 keys), not this packet.
 

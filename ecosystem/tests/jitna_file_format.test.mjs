@@ -62,7 +62,7 @@ test("the file format carries an explicit $jitna_format marker distinguishing it
 
   // Simulates being handed one of the 254 real, unrelated .jitna files
   // (YAML-ish agent templates with intent/inputs/plan/output keys, found
-  // under the private services repo's private-UI templates during this session's
+  // among private intent-driven UI templates during this session's
   // JITNA research) — must be rejected with a clear reason, not silently
   // misparsed as if it were this packet format.
   const unrelatedFormatContent = JSON.stringify({ intent: "some_agent", inputs: {}, plan: [], output: {} });

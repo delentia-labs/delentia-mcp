@@ -3,9 +3,9 @@
 This roadmap tracks work on the live Cloudflare Workers MCP gateway
 (`packages/sovereign`, `packages/fdia`, `packages/rct7`, `packages/delta`,
 `packages/jitna`, `packages/shared`). It does not replace or duplicate
-`Delentia-OS/ROADMAP.md` or `the private services repo`'s internal roadmaps.
+`Delentia-OS/ROADMAP.md` or internal (non-public) roadmaps.
 **Update 2026-09-13, part 8**: the bridge now covers all 5 of
-`the private services repo`'s Python services that were independently audited
+the non-public Python services that were independently audited
 real this session — GraphRAG, Vector Search, Halting Detection, Graph
 Traversal, and MOIP Planner — via `syncToGraphRag()`,
 `syncToVectorSearch()`, `checkGeneratedCodeHalts()`,
@@ -29,11 +29,11 @@ for the verified per-tool status this roadmap is fixing).
 ## Done (2026-09-13, part 7)
 
 - [x] **Bridge completed for all 5 audited-real services**: `packages/shared/src/{graph-traversal-client,moip-client}.ts` + `syncToGraphTraversal()`/`analyzeIntentLoopTradeoffs()` in `packages/intent-loop/src/worker.ts`. `syncToGraphTraversal()` creates a real Intent node, a real Outcome node, and a real `PRODUCED` relationship for every completed run — a third complementary memory backend answering explicit relationship queries neither GraphRAG nor Vector Search can. `analyzeIntentLoopTradeoffs()` is purely advisory (never changes routing): a real MOIP Pareto-dominance analysis using only real fields already on the result (FDIA score, verification confidence, a documented normalization of real latency), remembered in GraphRAG when both are configured. All verified against the real Python services as subprocesses. Found and fixed two real bugs while wiring this: `graph-traversal-client.ts`'s first draft missed the service's real `/graph` route prefix entirely (every call would have 404'd), and the real Neo4j Python driver was never installed in this shared interpreter (masked for `pytest` by a test-only mock).
-- [ ] Not done: the reverse direction (Python services calling back into this TS kernel), and the other ~32 services in `the private services repo`'s Python microservices platform not yet independently audited as real. None of the 5 bridged `*_BASE_URL` vars has a real deployed value yet — all five bridges are real and tested, but only actually fire once a reachable instance of the corresponding service exists outside a dev/test environment.
+- [ ] Not done: the reverse direction (Python services calling back into this TS kernel), and the non-public Python services not yet independently audited as real. None of the 5 bridged `*_BASE_URL` vars has a real deployed value yet — all five bridges are real and tested, but only actually fire once a reachable instance of the corresponding service exists outside a dev/test environment.
 
 ## Done (2026-09-13, part 5)
 
-- [x] **The first real TS<->Python bridge**: `packages/shared/src/graphrag-client.ts` (real `fetch()` client) + `syncToGraphRag()` in `packages/intent-loop/src/worker.ts` — every completed `run_intent_loop` call best-effort syncs a real summary into GraphRAG's semantic memory (`the private services repo/<private>/microservices/graphrag-complete`), gated on an optional `GRAPHRAG_BASE_URL` (unset by default — GraphRAG has no public deployment yet). Verified with a real cross-repo, cross-language integration test that starts the actual Python service as a subprocess and confirms real ingestion + real semantic search, not a mocked round trip.
+- [x] **The first real TS<->Python bridge**: `packages/shared/src/graphrag-client.ts` (real `fetch()` client) + `syncToGraphRag()` in `packages/intent-loop/src/worker.ts` — every completed `run_intent_loop` call best-effort syncs a real summary into GraphRAG's semantic memory (the non-public Python GraphRAG service), gated on an optional `GRAPHRAG_BASE_URL` (unset by default — GraphRAG has no public deployment yet). Verified with a real cross-repo, cross-language integration test that starts the actual Python service as a subprocess and confirms real ingestion + real semantic search, not a mocked round trip.
 - [ ] Not done: the reverse direction (Python services calling back into this TS kernel — e.g. GraphRAG consulting RCTDB's audit log), and bridging Vector Search / Halting Detection specifically (only GraphRAG is wired so far). `GRAPHRAG_BASE_URL` also has no real deployed value yet — the bridge code is real and tested, but only actually fires once a reachable GraphRAG instance exists outside a dev/test environment (e.g. via a tunnel or a real deployment).
 
 ## Done (2026-09-13, part 4)
@@ -48,7 +48,7 @@ for the verified per-tool status this roadmap is fixing).
 
 ## Done (2026-09-13, part 2)
 
-- [x] **JITNA is now a real file format**, not just an in-memory object. `packages/shared/src/jitna-file.ts` adds `serializeJitnaPacket`/`parseJitnaPacket`/`writeJitnaFile`/`readJitnaFile`, an explicit `$jitna_format` marker resolving a real naming collision against 254 unrelated pre-existing `.jitna` files elsewhere in the repo (a different, YAML-ish agent-template format in `the private services repo`'s private-UI templates), and a SHA-256 checksum catching tampering/corruption. 8 new tests use real packets from the real `orchestrateSwarm()` tool and real disk I/O.
+- [x] **JITNA is now a real file format**, not just an in-memory object. `packages/shared/src/jitna-file.ts` adds `serializeJitnaPacket`/`parseJitnaPacket`/`writeJitnaFile`/`readJitnaFile`, an explicit `$jitna_format` marker resolving a real naming collision against 254 unrelated pre-existing `.jitna` files elsewhere in the repo (a different, YAML-ish agent-template format used by private UI templates), and a SHA-256 checksum catching tampering/corruption. 8 new tests use real packets from the real `orchestrateSwarm()` tool and real disk I/O.
 - [ ] Not done: promoting this beyond a "save/load one packet" format — no compact binary encoding (Python's `jitna_protocol_v3.py` already has real TOON serialization + zlib/zstd compression that could be adapted here, but wasn't in this pass), no multi-packet container/streaming format, and the `M` (memory) field stays intentionally unconstrained (`z.record(z.unknown())`) since tightening it is a schema-design decision, not a file-format one.
 
 ## Done (2026-09-13)

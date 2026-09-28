@@ -1,6 +1,6 @@
 /**
  * Real HTTP client for the Python Halting Detection service
- * (<private>/microservices/halting-detection — ALGO-22), giving
+ * (ALGO-22; the service itself is not public), giving
  * TypeScript Workers a real network path to safety-check untrusted code
  * before it is treated as fully trustworthy. This service's own real
  * bounded-execution sandbox (subprocess + real wall-clock timeout + real

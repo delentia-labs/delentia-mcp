@@ -1,6 +1,6 @@
 /**
  * Real HTTP client for the Python MOIP Planner service
- * (<private>/microservices/moip-planner — ALGO-02, audited real
+ * (ALGO-02; the service itself is not public, audited real
  * earlier this session: genuine Pareto-dominance checking and
  * multi-objective trade-off analysis). Every call here is a real
  * fetch() against MOIP's real, already-tested HTTP API
