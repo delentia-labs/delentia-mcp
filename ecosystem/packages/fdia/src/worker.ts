@@ -7,7 +7,6 @@ import {
   type ArchitectCustomPolicy,
   captureException,
   generateGitHubOAuthUrl,
-  createSessionToken,
   verifySessionToken,
   resolveSessionDOName,
   generateSigningKeypair,
@@ -152,7 +151,18 @@ export default {
     configureTrustedArchitectKeys(parseTrustedArchitectKeys(env.FDIA_ARCHITECT_KEYS_JSON));
     const url = new URL(request.url);
     const serverName = env.SERVER_NAME || "Delentia FDIA Security MCP";
-    const authSecret = env.AUTH_SECRET || "default_delentia_security_key_32_chars";
+    // Round 49: no hardcoded fallback. The old default
+    // ("default_delentia_security_key_32_chars") is public in this source, so any
+    // token signed with it proved nothing. Unset = the /auth endpoints are off.
+    const authSecret = env.AUTH_SECRET;
+    const authNotConfigured = () =>
+      new Response(
+        JSON.stringify({
+          error: "not_implemented",
+          message: "GitHub sign-in is not available on this deployment. Tools need no sign-in; per-session policy uses session_id.",
+        }),
+        { status: 501, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+      );
 
     try {
       // CORS Preflight
@@ -226,37 +236,19 @@ export default {
 
       // 2. Direct GitHub OAuth Handlers
       if (url.pathname === "/auth/github/login") {
-        const clientId = env.GITHUB_CLIENT_ID || "demo_github_client_id";
+        if (!env.GITHUB_CLIENT_ID || !authSecret) return authNotConfigured();
+        const clientId = env.GITHUB_CLIENT_ID;
         const redirectUri = `${url.origin}/auth/github/callback`;
         const authUrl = generateGitHubOAuthUrl(clientId, redirectUri);
         return Response.redirect(authUrl, 302);
       }
 
       if (url.pathname === "/auth/github/callback") {
-        const code = url.searchParams.get("code") || "demo_code";
-        // Issue cryptographic session token
-        const token = createSessionToken(
-          {
-            sub: `github_user_${code.slice(0, 8)}`,
-            login: "architect_user",
-            role: "senior_dev",
-            exp: Math.floor(Date.now() / 1000) + 86400 * 7,
-          },
-          authSecret
-        );
-
-        return new Response(
-          JSON.stringify({
-            authenticated: true,
-            session_token: token,
-            token_type: "Bearer",
-            expires_in: 604800,
-            message: "Authentication successful. Use this token in Authorization: Bearer <token>",
-          }),
-          {
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          }
-        );
+        // Round 49: this handler never exchanged `code` with GitHub - it signed a
+        // session token for ANY code and answered "authenticated: true". Until a
+        // real code -> access-token -> user exchange exists, it must not claim a
+        // sign-in. (The token never gated any tool; /auth/verify was its only use.)
+        return authNotConfigured();
       }
 
       if (url.pathname === "/auth/verify" && request.method === "POST") {
@@ -268,6 +260,7 @@ export default {
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
           });
         }
+        if (!authSecret) return authNotConfigured();
         const verifyRes = verifySessionToken(token, authSecret);
         return new Response(JSON.stringify(verifyRes), {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
