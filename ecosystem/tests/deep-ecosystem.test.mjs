@@ -11,6 +11,7 @@ import {
   measureLatency,
 } from "../packages/shared/dist/index.js";
 import { executeRCT7 } from "../packages/rct7/dist/index.js";
+import { sign } from "./helpers/architect-keys.mjs";
 import { compressContext } from "../packages/delta/dist/index.js";
 import { orchestrateSwarm } from "../packages/jitna/dist/index.js";
 
@@ -191,13 +192,30 @@ test("FDIA Enterprise Policy - Dual Human Architect Sign-off Verification", () =
   assert.equal(singleSign.authorized, false);
   assert.equal(singleSign.future_score, 0.0);
 
-  // With dual sign-off confirmed -> APPROVED
-  const dualSignApproved = evaluateFDIA({
+  // Round 48: the caller's own `dual_signoff_confirmed: true` no longer counts
+  // (anyone could send it) ...
+  const selfDeclared = evaluateFDIA({
     data_quality: 0.99,
     intent_precision: 1.0,
     authorized: true,
     action_name: "purge_cold_storage",
     dual_signoff_confirmed: true,
+    custom_policy: dualSignPolicy,
+  });
+  assert.equal(selfDeclared.verdict, "SECURITY_DUAL_SIGNOFF_REQUIRED");
+  // ... nor does one signature twice ...
+  const one = sign("Chief_Architect", "purge_cold_storage");
+  assert.equal(evaluateFDIA({ data_quality: 0.99, intent_precision: 1.0, authorized: true,
+    action_name: "purge_cold_storage", architect_token: `${one} ${one}`, custom_policy: dualSignPolicy }).verdict,
+    "SECURITY_DUAL_SIGNOFF_REQUIRED");
+
+  // With two signatures from distinct trusted keys -> APPROVED
+  const dualSignApproved = evaluateFDIA({
+    data_quality: 0.99,
+    intent_precision: 1.0,
+    authorized: true,
+    action_name: "purge_cold_storage",
+    architect_token: `${one},${sign("Security_Admin", "purge_cold_storage")}`,
     custom_policy: dualSignPolicy,
   });
   assert.equal(dualSignApproved.verdict, "AUTHORIZED");

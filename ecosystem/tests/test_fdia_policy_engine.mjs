@@ -24,6 +24,9 @@ import {
   validatePolicy,
   FDIAPolicySchema,
 } from "../packages/shared/dist/index.js";
+// Round 48: Architect tokens are real Ed25519 signatures now; this registers
+// test keys as trusted and provides sign(role, action, payload).
+import { sign, signUntrusted } from "./helpers/architect-keys.mjs";
 
 // ============================================================================
 // SCENARIO 1: LOW RISK (ALLOW) — READ-ONLY & ANALYSIS (ZERO LATENCY FRICTION)
@@ -143,11 +146,16 @@ test("Scenario 3A: Destructive database / OS operations WITHOUT Architect Signat
     const noTokenEval = engine.evaluateA(intent);
     assert.equal(noTokenEval.A, 0);
     assert.equal(noTokenEval.actionType, "REQUIRE_HUMAN_SIGNATURE");
-    assert.ok(noTokenEval.reason.includes("Missing or invalid Architect cryptographic signature"));
+    assert.ok(noTokenEval.reason.includes("Missing or invalid Architect signature"));
 
-    // 2. Invalid or spoofed token supplied
-    const spoofedTokenEval = engine.evaluateA(intent, "", "spoofed_fake_token_12345");
-    assert.equal(spoofedTokenEval.A, 0);
+    // 2. Invalid or spoofed token supplied - including the two formats the
+    // pre-Round-48 check accepted (any 32+ chars, or a magic prefix), and a
+    // real signature from a key nobody trusts.
+    for (const forged of ["spoofed_fake_token_12345", "a".repeat(40), "valid_architect_sig_Chief_Architect", signUntrusted(intent)]) {
+      assert.equal(engine.evaluateA(intent, "", forged).A, 0, `forged token accepted: ${forged.slice(0, 30)}`);
+    }
+    // 3. A real token for a DIFFERENT action does not carry over
+    assert.equal(engine.evaluateA(intent, "", sign("Chief_Architect", "read_logs")).A, 0);
 
     const result = engine.evaluate({
       data_quality: 1.0,
@@ -165,11 +173,13 @@ test("Scenario 3A: Destructive database / OS operations WITHOUT Architect Signat
 
 test("Scenario 3B: Destructive operations WITH valid Human Architect Cryptographic Token are authorized (A = 1)", () => {
   const engine = new FDIAEngine();
-  const validArchitectToken = "valid_architect_sig_Chief_Architect_2026_approved_auth";
+  const validArchitectToken = sign("Chief_Architect", "drop_table_customers");
 
   const aEval = engine.evaluateA("drop_table_customers", "", validArchitectToken);
   assert.equal(aEval.A, 1);
   assert.ok(aEval.reason.includes("Architect cryptographic signature verified"));
+  // A role not listed as an approver for the rule cannot sign for it.
+  assert.equal(engine.evaluateA("drop_table_customers", "", sign("Chief_Financial_Architect", "drop_table_customers")).A, 0);
 
   const result = engine.evaluate({
     data_quality: 0.95,
@@ -218,7 +228,7 @@ test("Scenario 4A: Dynamically inject Fintech Wire Transfer Governance Rule", ()
   assert.equal(unsignedTransfer.verdict, "SECURITY_POLICY_VIOLATION");
 
   // Step 4: Wire transfer with valid Chief Financial Architect signature -> Authorized (A = 1)
-  const cfoToken = "valid_architect_sig_Chief_Financial_Architect_tx94819";
+  const cfoToken = sign("Chief_Financial_Architect", "wire_remittance_swift");
   const signedTransfer = engine.evaluate({
     data_quality: 0.98,
     intent_precision: 1.0,

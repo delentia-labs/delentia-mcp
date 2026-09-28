@@ -1,10 +1,13 @@
-import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, MAX_RETAINED_CHARS, type ArchitectCustomPolicy, type ContextQuery } from "@delentia/shared";
+import { evaluateFDIA, FDIAEngine, validatePolicy, cordCheck, extractCordText, MAX_RETAINED_CHARS, type ArchitectCustomPolicy, type ContextQuery, configureTrustedArchitectKeys, parseTrustedArchitectKeys, preverifyArchitectTokens, getConfiguredTrustedArchitectKeys, architectPayloadFor, type FDIARequest } from "@delentia/shared";
 export { MEEGrowthSessionDO } from "@delentia/shared";
 import { executeRCT7, type RCT7Input } from "../../rct7/dist/index.js";
 import { compressContext, type CompressContextInput } from "../../delta/dist/index.js";
 import { orchestrateSwarm, signJitnaPacket, type OrchestrateSwarmInput } from "../../jitna/dist/index.js";
 
 interface Env {
+  // Round 48: JSON array of {key_id, role, public_key_hex} - public keys,
+  // so a plain var is fine. Unset = no Architect token is ever valid.
+  FDIA_ARCHITECT_KEYS_JSON?: string;
   ENVIRONMENT?: string;
   SERVER_NAME?: string;
   FDIA_POLICY_KV?: KVNamespace;
@@ -90,6 +93,9 @@ const freeUsageCache = new Map<string, number>();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Round 48: the only source of keys trusted to sign Architect tokens
+    // (the A in FDIA). Never taken from a policy or a caller.
+    configureTrustedArchitectKeys(parseTrustedArchitectKeys(env.FDIA_ARCHITECT_KEYS_JSON));
     const url = new URL(request.url);
     const serverName = env.SERVER_NAME || "Delentia Sovereign AI Ecosystem All-in-One MCP";
 
@@ -384,7 +390,7 @@ export default {
             intentPrecision = Math.round((0.5 + rct7Trail.verified_alignment_score * 1.5) * 10000) / 10000;
           }
 
-          const result = engine.evaluate({
+          const fdiaRequest: FDIARequest = {
             data_quality: args.data_quality ?? 0.5,
             intent_precision: intentPrecision,
             authorized: args.authorized ?? true,
@@ -394,7 +400,16 @@ export default {
             caller_role: args.caller_role ?? "developer",
             caller_context: args.caller_context,
             dual_signoff_confirmed: args.dual_signoff_confirmed ?? false,
+          };
+          // Round 48: workerd can't verify Ed25519 synchronously, so Architect
+          // tokens are verified here with WebCrypto and handed to evaluate()
+          // as a separate, non-request argument.
+          const preverifiedArchitect = await preverifyArchitectTokens(fdiaRequest.architect_token, {
+            actionName: fdiaRequest.action_name,
+            targetPayload: architectPayloadFor(fdiaRequest),
+            trustedKeys: getConfiguredTrustedArchitectKeys(),
           });
+          const result = engine.evaluate(fdiaRequest, { preverifiedArchitect });
 
           // Real, persistent MEE growth step (Durable-Object-backed, added
           // 2026-09-13). Unlike intent-loop's confidence-driven growth

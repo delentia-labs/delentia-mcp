@@ -13,6 +13,11 @@ import {
   generateSigningKeypair,
   type GatedTransitionPayload,
   type MutateStateResponse,
+  configureTrustedArchitectKeys,
+  parseTrustedArchitectKeys,
+  preverifyArchitectTokens,
+  getConfiguredTrustedArchitectKeys,
+  architectPayloadFor,
 } from "@delentia/shared";
 export { MEEGrowthSessionDO, MEEGrowthGatedDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
@@ -20,6 +25,9 @@ export { FDIASessionDO } from "./session-do.js";
 import { callPythonKernelFdia } from "./pythonKernelBridge.js";
 
 interface Env {
+  // Round 48: JSON array of {key_id, role, public_key_hex} - public keys,
+  // so a plain var is fine. Unset = no Architect token is ever valid.
+  FDIA_ARCHITECT_KEYS_JSON?: string;
   FDIA_SESSION_DO: DurableObjectNamespace;
   MEE_SESSION_DO?: DurableObjectNamespace;
   // Round 33 (opt-in, additive): binds the new MEEGrowthGatedDO for the
@@ -139,6 +147,9 @@ function isExplicitPolicySession(value: unknown): value is string {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Round 48: the only source of keys trusted to sign Architect tokens
+    // (the A in FDIA). Never taken from a policy or a caller.
+    configureTrustedArchitectKeys(parseTrustedArchitectKeys(env.FDIA_ARCHITECT_KEYS_JSON));
     const url = new URL(request.url);
     const serverName = env.SERVER_NAME || "Delentia FDIA Security MCP";
     const authSecret = env.AUTH_SECRET || "default_delentia_security_key_32_chars";
@@ -595,7 +606,14 @@ export default {
             custom_policy: activePolicy,
           };
 
-          const evaluated = evaluateFDIA(params);
+          // Round 48: Architect tokens verified with WebCrypto (workerd has no
+          // synchronous Ed25519), passed as a separate, non-request argument.
+          const preverifiedArchitect = await preverifyArchitectTokens(params.architect_token, {
+            actionName: params.action_name,
+            targetPayload: architectPayloadFor(params),
+            trustedKeys: getConfiguredTrustedArchitectKeys(),
+          });
+          const evaluated = evaluateFDIA(params, { preverifiedArchitect });
 
           // Round 31: real, best-effort cross-check against Delentia-OS's
           // Python kernel (see pythonKernelBridge.ts's own docstring for

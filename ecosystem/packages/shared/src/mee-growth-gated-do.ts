@@ -1,6 +1,7 @@
 import { MEEGrowthTracker, confidenceToGrowthDelta, type MEEGrowthState } from "./mee-growth.js";
-import { evaluateFDIA, type FDIARequest, type FDIAEvaluationResult, type ArchitectCustomPolicy } from "./fdia-core.js";
+import { architectPayloadFor, evaluateFDIA, type FDIARequest, type FDIAEvaluationResult, type ArchitectCustomPolicy } from "./fdia-core.js";
 import { importPublicKeyFromJwk, verifyPayloadSignature } from "./ed25519.js";
+import { configureTrustedArchitectKeys, getConfiguredTrustedArchitectKeys, parseTrustedArchitectKeys, preverifyArchitectTokens } from "./architect-token.js";
 
 /**
  * MEEGrowthGatedDO — a real, hash-chained, FDIA-gated, Ed25519-verified
@@ -252,8 +253,10 @@ export class MEEGrowthGatedDO {
   private tracker: MEEGrowthTracker | null = null;
   private loaded = false;
 
-  constructor(state: DurableObjectState) {
+  constructor(state: DurableObjectState, env?: { FDIA_ARCHITECT_KEYS_JSON?: string }) {
     this.ds = state;
+    // Round 48: same trusted Architect keys as the Worker (never from the payload).
+    configureTrustedArchitectKeys(parseTrustedArchitectKeys(env?.FDIA_ARCHITECT_KEYS_JSON));
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -347,7 +350,12 @@ export class MEEGrowthGatedDO {
         dual_signoff_confirmed: payload.dual_signoff_confirmed ?? false,
         custom_policy: payload.custom_policy,
       };
-      const fdiaResult = evaluateFDIA(fdiaRequest);
+      const preverifiedArchitect = await preverifyArchitectTokens(fdiaRequest.architect_token, {
+        actionName: fdiaRequest.action_name,
+        targetPayload: architectPayloadFor(fdiaRequest),
+        trustedKeys: getConfiguredTrustedArchitectKeys(),
+      });
+      const fdiaResult = evaluateFDIA(fdiaRequest, { preverifiedArchitect });
 
       if (payload.consensusResult.isCacheHit) state.cacheHitCount += 1;
 

@@ -16,6 +16,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { bundledPolicyConfig } from "./default-policy.js";
+import {
+  type ArchitectTokenCheck,
+  type PreverifiedArchitect,
+  type TrustedArchitectKey,
+  getConfiguredTrustedArchitectKeys,
+  verifiedArchitectSigners,
+} from "./architect-token.js";
+
+/**
+ * Round 48: the exact string an Architect token's payload hash covers for a
+ * request. Workers that pre-verify tokens must use this, so both sides hash
+ * the same bytes.
+ */
+export function architectPayloadFor(request: { target_payload?: string; caller_context?: string }): string {
+  return request.target_payload || request.caller_context || "";
+}
+
+/** Round 48: options that must come from trusted Worker code, never from a tool call's arguments. */
+export interface FDIAEvaluateOptions {
+  /** Architect tokens already verified with WebCrypto (see preverifyArchitectTokens). */
+  preverifiedArchitect?: PreverifiedArchitect;
+}
 
 /**
  * Individual Policy Rule Schema
@@ -388,6 +410,49 @@ export class FDIAEngine {
   private policy: FDIAPolicy;
   private startupValidationErrors: string[] = [];
 
+  /**
+   * Round 48: keys trusted to sign Architect tokens for THIS engine. Set only
+   * by trusted code (a Worker from its env, a test); never read from a policy,
+   * since callers can supply per-session policies. Unset = the deployment-wide
+   * keys from configureTrustedArchitectKeys(); none at all = fail-closed.
+   */
+  private trustedArchitectKeys?: TrustedArchitectKey[];
+
+  public withTrustedArchitectKeys(keys: TrustedArchitectKey[]): this {
+    this.trustedArchitectKeys = keys.slice();
+    return this;
+  }
+
+  private architectKeys(): TrustedArchitectKey[] {
+    return this.trustedArchitectKeys ?? getConfiguredTrustedArchitectKeys();
+  }
+
+  /**
+   * Distinct trusted signers of `token` for exactly this action and payload.
+   * Uses WebCrypto results a Worker verified up front when they are for the
+   * same token/action/payload; otherwise verifies synchronously (node:crypto,
+   * available in Node but not in workerd - there it simply finds nothing,
+   * which fails closed).
+   */
+  private architectSigners(
+    token: string | undefined,
+    actionName: string,
+    targetPayload: string,
+    allowedRoles: string[] | undefined,
+    preverified?: PreverifiedArchitect
+  ): ArchitectTokenCheck[] {
+    if (!token) return [];
+    if (preverified && preverified.token === token && preverified.actionName === actionName &&
+        preverified.targetPayload === targetPayload) {
+      const trustedIds = new Set(this.architectKeys().map((k) => k.key_id));
+      return preverified.signers.filter((s) =>
+        s.valid && s.keyId !== undefined && trustedIds.has(s.keyId) &&
+        (!allowedRoles || allowedRoles.length === 0 || (s.approverRole !== undefined && allowedRoles.includes(s.approverRole)))
+      );
+    }
+    return verifiedArchitectSigners(token, { actionName, targetPayload, allowedRoles, trustedKeys: this.architectKeys() });
+  }
+
   constructor(policyConfig?: Partial<FDIAPolicy> | string) {
     if (typeof policyConfig === "string") {
       // Path to policy file or raw JSON string
@@ -587,7 +652,8 @@ export class FDIAEngine {
     targetPayload: string = "",
     providedArchitectToken?: string,
     callerRole: string = "developer",
-    dualSignoffConfirmed: boolean = false
+    dualSignoffConfirmed: boolean = false,
+    preverified?: PreverifiedArchitect
   ): { A: number; reason: string; ruleTriggered: string; actionType: string; verifiedApprover?: string } {
     // 1. Evaluate Configured Dynamic Rules first if present
     if (this.policy.rules && this.policy.rules.length > 0) {
@@ -639,7 +705,9 @@ export class FDIAEngine {
 
           // Case 1: REQUIRE_HUMAN_SIGNATURE
           if (rule.action_type === "REQUIRE_HUMAN_SIGNATURE" || rule.require_human_confirmation) {
-            const signatureResult = this.verifyArchitectSignature(providedArchitectToken, rule.human_approver_role);
+            const signatureResult = this.verifyArchitectSignature(
+              providedArchitectToken, rule.human_approver_role, intentCode, targetPayload, preverified
+            );
             if (signatureResult.valid) {
               return {
                 A: 1,
@@ -651,7 +719,7 @@ export class FDIAEngine {
             } else {
               return {
                 A: 0,
-                reason: `Missing or invalid Architect cryptographic signature under rule ${rule.rule_id} (VETO).`,
+                reason: `Missing or invalid Architect signature under rule ${rule.rule_id} (VETO): ${signatureResult.reason}.`,
                 ruleTriggered: rule.rule_id,
                 actionType: rule.action_type,
               };
@@ -715,10 +783,17 @@ export class FDIAEngine {
     // 3. Check Backward-Compatible Dual Signoff
     if (this.policy.require_human_dual_signoff?.length) {
       const isDual = this.policy.require_human_dual_signoff.some((p) => matchesWildcard(intentCode, p));
-      if (isDual && !dualSignoffConfirmed) {
+      // Round 48: dual sign-off means two DISTINCT trusted Architect keys
+      // signed this exact action. The caller-supplied `dualSignoffConfirmed`
+      // boolean is no longer trusted (a caller could simply send `true`).
+      void dualSignoffConfirmed;
+      const signers = isDual
+        ? this.architectSigners(providedArchitectToken, intentCode, targetPayload, undefined, preverified)
+        : [];
+      if (isDual && signers.length < 2) {
         return {
           A: 0,
-          reason: `Action "${intentCode}" requires confirmed dual human sign-off.`,
+          reason: `Action "${intentCode}" requires dual human sign-off: two Architect tokens from distinct trusted keys (got ${signers.length}).`,
           ruleTriggered: "SECURITY_DUAL_SIGNOFF_REQUIRED",
           actionType: "REQUIRE_HUMAN_SIGNATURE",
         };
@@ -757,42 +832,26 @@ export class FDIAEngine {
   }
 
   /**
-   * Verifies cryptographic architect authorization token
+   * Round 48: real verification. The token must be an Ed25519 Architect token
+   * (see architect-token.ts) signed by a trusted key for exactly this action
+   * and payload, unexpired, and - when the rule names approver roles - from a
+   * key holding one of them. The previous implementation accepted any
+   * 32+ character string or any "valid_architect_sig_*" prefix.
    */
   public verifyArchitectSignature(
     token?: string,
-    allowedApproverRoles?: string[]
-  ): { valid: boolean; approverRole?: string } {
-    if (!token) return { valid: false };
-
-    // Format 1: Cryptographic signature prefix (e.g. "valid_architect_sig_admin_...")
-    if (token.startsWith("valid_architect_sig_") || token.startsWith("delentia_auth_token_")) {
-      const rest = token.replace(/^(valid_architect_sig_|delentia_auth_token_)/, "");
-      let approverRole = "Chief_Architect";
-
-      if (allowedApproverRoles && allowedApproverRoles.length > 0) {
-        const matched = allowedApproverRoles.find((r) => rest.toLowerCase().includes(r.toLowerCase()));
-        if (matched) {
-          return { valid: true, approverRole: matched };
-        }
-        return { valid: false };
-      }
-
-      return { valid: true, approverRole };
+    allowedApproverRoles?: string[],
+    actionName: string = "",
+    targetPayload: string = "",
+    preverified?: PreverifiedArchitect
+  ): { valid: boolean; approverRole?: string; reason: string } {
+    if (!token) return { valid: false, reason: "no Architect token supplied" };
+    const signers = this.architectSigners(token, actionName, targetPayload, allowedApproverRoles, preverified);
+    if (signers.length > 0) return { valid: true, approverRole: signers[0].approverRole, reason: signers[0].reason };
+    if (this.architectKeys().length === 0) {
+      return { valid: false, reason: "no trusted Architect keys are configured for this deployment (fail-closed)" };
     }
-
-    // Format 2: Valid SHA-256 HMAC or Bearer Token format
-    if (
-      token.length >= 32 &&
-      !token.includes("invalid") &&
-      !token.includes("forged") &&
-      !token.includes("hacker") &&
-      !token.includes("spoofed")
-    ) {
-      return { valid: true, approverRole: "Chief_Architect" };
-    }
-
-    return { valid: false };
+    return { valid: false, reason: "no Architect token verified for this action, payload and approver role" };
   }
 
   /**
@@ -818,7 +877,7 @@ export class FDIAEngine {
   /**
    * Evaluates complete request with audit digest and policy enforcement
    */
-  public evaluate(request: FDIARequest): FDIAEvaluationResult {
+  public evaluate(request: FDIARequest, options: FDIAEvaluateOptions = {}): FDIAEvaluationResult {
     const {
       data_quality,
       intent_precision,
@@ -833,7 +892,11 @@ export class FDIAEngine {
     } = request;
 
     // Use runtime inline custom policy if provided, otherwise active policy
-    const effectiveEngine = custom_policy ? new FDIAEngine(custom_policy) : this;
+    // A caller's custom_policy never carries trusted keys; the child engine
+    // inherits this engine's (or the deployment's) keys instead.
+    const effectiveEngine = custom_policy
+      ? (this.trustedArchitectKeys ? new FDIAEngine(custom_policy).withTrustedArchitectKeys(this.trustedArchitectKeys) : new FDIAEngine(custom_policy))
+      : this;
     const policy = effectiveEngine.getPolicy();
     const threshold = policy.custom_safety_threshold ?? 0.5;
 
@@ -852,10 +915,11 @@ export class FDIAEngine {
     } else {
       aEval = effectiveEngine.evaluateA(
         action_name,
-        target_payload || caller_context || "",
+        architectPayloadFor(request),
         architect_token,
         caller_role,
-        dual_signoff_confirmed
+        dual_signoff_confirmed,
+        options.preverifiedArchitect
       );
       effectiveA = aEval.A;
     }
@@ -973,6 +1037,6 @@ export const defaultFDIAEngine = new FDIAEngine();
 /**
  * Top-level convenience evaluation function backward-compatible with all MCP servers
  */
-export function evaluateFDIA(request: FDIARequest): FDIAEvaluationResult {
-  return defaultFDIAEngine.evaluate(request);
+export function evaluateFDIA(request: FDIARequest, options: FDIAEvaluateOptions = {}): FDIAEvaluationResult {
+  return defaultFDIAEngine.evaluate(request, options);
 }

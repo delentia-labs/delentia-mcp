@@ -22,6 +22,7 @@ import {
   matchesWildcard,
   createDefaultPolicy,
 } from "../packages/shared/dist/index.js";
+import { sign } from "./helpers/architect-keys.mjs";
 
 // ============================================================================
 // H1 — MATHEMATICAL INVARIANTS OF F = D^I * A
@@ -210,7 +211,7 @@ test("H3a: [BUG FOUND + FIXED] genuine multi-pattern overlap now resolves to the
     intent_precision: 1.0,
     authorized: true,
     action_name: "purge_telemetry_cache",
-    architect_token: "valid_architect_sig_Chief_Architect",
+    architect_token: sign("Chief_Architect", "purge_telemetry_cache"),
   });
   assert.equal(signed.verdict, "AUTHORIZED", "a valid architect signature still overrides the block, as designed");
 });
@@ -434,7 +435,7 @@ test("H6: RBAC role-check applies to whichever rule wins by severity, not just t
   const permitted = engine.evaluateA(
     "danger_ops_run",
     "",
-    "valid_architect_sig_Security_Admin",
+    sign("Security_Admin", "danger_ops_run"),
     "Security_Admin"
   );
   assert.equal(permitted.A, 1);
