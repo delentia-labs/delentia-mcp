@@ -20,7 +20,8 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP"
+    "SERVER_NAME": "Delentia Sovereign AI Ecosystem All-in-One MCP",
+    "FDIA_ARCHITECT_KEYS_JSON": "[{\"key_id\":\"architect-1\",\"role\":\"Chief_Architect\",\"public_key_hex\":\"803ae137d31b64cdaa181ae54f2a914fbc27e96c66dafdc342f6b47af3c89567\"}]"
     // Round 48: Architect tokens (the A in FDIA) are Ed25519 signatures now.
     // Until this var lists trusted approver public keys, NO architect_token is
     // accepted and every REQUIRE_HUMAN_SIGNATURE action stays blocked

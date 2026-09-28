@@ -35,15 +35,18 @@ writeFileSync(
       description: src.description,
       type: "module",
       bin: { "delentia-guard": "cli.mjs" },
-      files: ["cli.mjs", "policies/", "README.md"],
+      files: ["cli.mjs", "policies/", "README.md", "LICENSE"],
       engines: { node: ">=18" },
       keywords: ["mcp", "model-context-protocol", "ai-agent", "guardrails", "policy", "audit", "claude", "cursor"],
-      // Decide before publishing: see docs/GUARD.md "Publishing".
-      license: "UNLICENSED",
+      // Round 49: Architect decision 2026-09-28 - Apache-2.0, same as delentia-mcp.
+      license: "Apache-2.0",
+      homepage: "https://delentia.com",
+      repository: { type: "git", url: "git+https://github.com/delentia-labs/delentia-mcp.git" },
     },
     null,
     2
   ) + "\n"
 );
 copyFileSync(path.join(here, "../../docs/GUARD.md"), path.join(out, "README.md"));
+copyFileSync(path.join(here, "../../LICENSE"), path.join(out, "LICENSE"));
 console.log("built", path.relative(process.cwd(), out));

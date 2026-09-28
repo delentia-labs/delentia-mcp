@@ -134,6 +134,5 @@ delentia-guard --head ~/.delentia/guard-audit.jsonl    # entry count + last hash
 (the workspace packages it depends on are not on npm), the starter policy and this README. Check it
 with `npm pack --dry-run` inside that folder, then `npm publish` from there.
 
-Two decisions to make before the first publish: the license (`UNLICENSED` today, which means nobody
-else may legally use it), and whether shipping the bundled FDIA engine source publicly fits the IP
-policy (`.clinerules` section 4).
+Decided 2026-09-28 (Round 49): Apache-2.0, like `delentia-mcp`; the bundled FDIA engine is core SDK
+code, which the IP policy (`.clinerules` section 4) allows to be public.
