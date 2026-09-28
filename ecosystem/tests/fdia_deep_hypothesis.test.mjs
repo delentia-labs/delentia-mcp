@@ -28,27 +28,26 @@ import { sign } from "./helpers/architect-keys.mjs";
 // H1 — MATHEMATICAL INVARIANTS OF F = D^I * A
 // ============================================================================
 
-test("H1a: D=1 forces F=A regardless of I, for any I >= 0 (1^I = 1 identically)", () => {
+test("H1a: D=1 forces F=A for any I > 0 (1^I = 1); I = 0 is no intent, so F = 0 (Round 48)", () => {
   const engine = new FDIAEngine();
-  for (const I of [0, 0.5, 1, 2, 10, 100, 1e6]) {
+  for (const I of [0.5, 1, 2, 10, 100, 1e6]) {
     assert.equal(engine.calculateF(1, I, 1), 1, `F must be 1 at D=1, I=${I}, A=1`);
     assert.equal(engine.calculateF(1, I, 0), 0, `F must be 0 at D=1, I=${I}, A=0 (physical cutoff still applies)`);
   }
+  // Round 48 (Architect decision): "no intent = no outcome" - even perfect data.
+  assert.equal(engine.calculateF(1, 0, 1), 0);
 });
 
-test("H1b: D=0, I>0 forces F=0 (0^I = 0 for I>0); D=0, I=0 is the documented 0^0=1 edge case", () => {
+test("H1b: D=0 forces F=0 for every I, including the former 0^0=1 edge case (Round 48)", () => {
   const engine = new FDIAEngine();
   assert.equal(engine.calculateF(0, 1, 1), 0);
   assert.equal(engine.calculateF(0, 5, 1), 0);
   assert.equal(engine.calculateF(0, 0.5, 1), 0);
-  // JS Math.pow(0, 0) === 1 by spec (IEEE 754), same as most languages.
-  // Documenting this rather than hiding it: a caller submitting D=0 with
-  // I=0 (I's schema floor is 0.5 via FDIARequestSchema, but calculateF()
-  // itself is a public method with no such floor) gets F=1, not F=0. This
-  // is mathematically correct pow(0,0) behavior, not a bug — but it means
-  // calculateF() alone is not a safe substitute for going through the full
-  // evaluate()/schema path, which enforces intent_precision >= 0.5.
-  assert.equal(engine.calculateF(0, 0, 1), 1, "Math.pow(0,0)=1 propagates through calculateF by design");
+  // JS Math.pow(0, 0) === 1 by spec, and before Round 48 that propagated:
+  // D=0, I=0 gave F=1, a full score with neither data nor intent. The
+  // Architect's FDIA contract (no data / no intent = no future) now takes
+  // precedence over raw arithmetic in calculateF itself.
+  assert.equal(engine.calculateF(0, 0, 1), 0, "no data and no intent must be F = 0");
 });
 
 test("H1c: Monotonicity — for fixed I>0 and A=1, F is non-decreasing as D increases over [0,1]", () => {
