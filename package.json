@@ -1,6 +1,6 @@
 {
   "name": "delentia-mcp",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "mcpName": "io.github.delentia-labs/delentia-mcp",
   "description": "Stop rogue AI-agent tool calls before they run: deterministic policy gate with audit digest. Zero-config MCP connector for Claude, Cursor, and Windsurf.",
   "type": "module",
@@ -28,7 +28,6 @@
     "model-context-protocol",
     "prompt-injection",
     "tool-call-guardrail",
-    "hallucination-prevention",
     "token-optimizer",
     "cursor",
     "claude-desktop",
