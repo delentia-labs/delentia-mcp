@@ -58,7 +58,7 @@ test("audit log is hash-chained: intact log verifies, an edited or removed entry
   g.inspect(call(2, "delete_file", { path: "b" }));
   g.inspect(call(3, "read_file", { path: "c" }));
   const log = lines.join("\n");
-  assert.deepEqual(verifyAuditLog(log), { ok: true, entries: 3 });
+  { const r = verifyAuditLog(log); assert.equal(r.ok, true); assert.equal(r.entries, 3); assert.equal(r.signed, 0); }
   assert.equal(JSON.parse(lines[1]).decision, "blocked");
   assert.ok(!lines[0].includes("path"), "arguments are stored only as a hash");
 
@@ -135,7 +135,7 @@ test("end to end: a blocked call never reaches the server; allowed calls do; aud
   assert.equal(byId[5].result.content[0].text, "executed write_file");
   assert.match(r.err, /blocked: 2/);
   assert.ok(existsSync(audit));
-  assert.deepEqual(verifyAuditLog(readFileSync(audit, "utf8")), { ok: true, entries: 4 });
+  { const r = verifyAuditLog(readFileSync(audit, "utf8")); assert.equal(r.ok, true); assert.equal(r.entries, 4); assert.equal(r.signed, 0); }
 });
 
 test("end to end: --monitor forwards everything, and --verify reports the log", async () => {
@@ -148,5 +148,5 @@ test("end to end: --monitor forwards everything, and --verify reports the log", 
   assert.equal(readFileSync(executed, "utf8").trim(), "delete_file");
   assert.match(r.err, /would block: 1/);
   const v = await runGuard(["--verify", audit], []);
-  assert.deepEqual(JSON.parse(v.out), { ok: true, entries: 1 });
+  { const r = JSON.parse(v.out); assert.equal(r.ok, true); assert.equal(r.entries, 1); assert.equal(r.signed, 0); }
 });

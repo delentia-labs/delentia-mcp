@@ -100,6 +100,26 @@ editing or deleting an entry is detectable:
 node packages/guard/dist/cli.js --verify ~/.delentia/guard-audit.jsonl
 ```
 
+### Signed entries (recommended when the log is evidence)
+
+A hash chain alone can be rebuilt from scratch by anyone who can write the file. With a signing
+key, each entry's hash is also signed with Ed25519 by the guard process, which runs separately from
+the agent:
+
+```bash
+delentia-guard keygen --out ~/.delentia/keys/guard-audit.pem --key-id guard-1   # prints the public key
+delentia-guard --audit-key ~/.delentia/keys/guard-audit.pem --audit-key-id guard-1 -- <server command>
+delentia-guard --verify ~/.delentia/guard-audit.jsonl --pubkey guard-1=<public_key_hex> --require-signed
+delentia-guard --head ~/.delentia/guard-audit.jsonl    # entry count + last hash
+```
+
+- While signing is on, any tool call whose arguments name the key file or the audit log is refused
+  (in monitor mode too), so the agent cannot read the key or edit the log through the proxied server.
+- Keep the public key somewhere the agent cannot change (your notes, the team wiki).
+- Publish `--head` output outside the machine from time to time (a chat message, a commit in
+  another repo). Without that, someone who has the key or root on the machine could rewrite the
+  whole log; the published head is what exposes it.
+
 ## Limits
 
 - Only tools reached *through* the guard are covered; tools the agent has from other, unwrapped

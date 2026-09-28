@@ -3,7 +3,9 @@
  * delentia-guard — wrap any stdio MCP server so every tool call is checked against a policy.
  *
  *   delentia-guard [options] -- <server command> [server args...]
- *   delentia-guard --verify <audit.jsonl>
+ *   delentia-guard --verify <audit.jsonl> [--pubkey <key_id>=<hex>] [--require-signed]
+ *   delentia-guard --head <audit.jsonl>     entry count + last hash (publish it elsewhere)
+ *   delentia-guard keygen --out <pem> [--key-id <id>]   create an audit signing key
  *   delentia-guard pending                 list approval requests
  *   delentia-guard approve <id>            approve one blocked call (interactive terminal only)
  *
@@ -18,6 +20,9 @@
  *   --compress-over <tokens> size threshold for --compress (default 2000 estimated tokens)
  *   --approvals <dir>        where approval requests live (default: ~/.delentia/approvals)
  *   --no-approvals           never offer human approval; human-signature rules just deny
+ *   --audit-key <pem>        sign every audit entry (Ed25519); keep the key outside the upstream
+ *                            server's reach - calls naming it or the audit log are refused
+ *   --audit-key-id <id>      key id recorded in each entry (default: guard-1)
  *   --compress-tools a,b*    tool-name patterns whose results may be compressed
  *                            (default: commands, tests, builds, lint, logs — never plain file reads)
  *
@@ -27,11 +32,12 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Guard, lastAuditHash, verifyAuditLog, type JsonRpcMessage } from "./guard.js";
+import { Guard, auditHead, auditPublicKeyHex, lastAuditHash, verifyAuditLog, type JsonRpcMessage } from "./guard.js";
 import { ApprovalStore } from "./approvals.js";
 
 const DEFAULT_APPROVALS = path.join(homedir(), ".delentia", "approvals");
@@ -53,12 +59,47 @@ const log = (m: string) => process.stderr.write(`[delentia-guard] ${m}\n`);
 if (argv[0] === "--verify") {
   const file = argv[1];
   if (!file || !existsSync(file)) {
-    log(`usage: delentia-guard --verify <audit.jsonl>`);
+    log(`usage: delentia-guard --verify <audit.jsonl> [--pubkey <key_id>=<hex>] [--require-signed]`);
     process.exitCode = 2;
   } else {
-    const r = verifyAuditLog(readFileSync(file, "utf8"));
+    const publicKeys: Record<string, string> = {};
+    argv.forEach((a, i) => {
+      if (a === "--pubkey" && argv[i + 1]?.includes("=")) {
+        const [id, hex] = argv[i + 1].split("=");
+        publicKeys[id] = hex;
+      }
+    });
+    const r = verifyAuditLog(readFileSync(file, "utf8"), {
+      publicKeys: Object.keys(publicKeys).length ? publicKeys : undefined,
+      requireSigned: argv.includes("--require-signed"),
+    });
     process.stdout.write(JSON.stringify(r) + "\n");
     process.exitCode = r.ok ? 0 : 1;
+  }
+} else if (argv[0] === "--head") {
+  const file = argv[1];
+  if (!file || !existsSync(file)) {
+    log("usage: delentia-guard --head <audit.jsonl>");
+    process.exitCode = 2;
+  } else {
+    process.stdout.write(JSON.stringify(auditHead(readFileSync(file, "utf8"))) + "\n");
+  }
+} else if (argv[0] === "keygen") {
+  const out = argv[argv.indexOf("--out") + 1];
+  const keyId = argv.includes("--key-id") ? argv[argv.indexOf("--key-id") + 1] : "guard-1";
+  if (!argv.includes("--out") || !out) {
+    log("usage: delentia-guard keygen --out <pem> [--key-id <id>]");
+    process.exitCode = 2;
+  } else if (existsSync(out)) {
+    log(`${out} already exists; refusing to overwrite a key`);
+    process.exitCode = 1;
+  } else {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const pem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    writeFileSync(out, pem, { mode: 0o600, flag: "wx" });
+    process.stdout.write(`${JSON.stringify({ key_id: keyId, public_key_hex: auditPublicKeyHex(pem) })}\n`);
+    log(`verify later with: delentia-guard --verify <audit.jsonl> --pubkey ${keyId}=<public_key_hex> --require-signed`);
   }
 } else if (argv[0] === "pending") {
   const store = new ApprovalStore(argv[1] === "--approvals" && argv[2] ? argv[2] : DEFAULT_APPROVALS);
@@ -147,6 +188,13 @@ function run(): void {
         }
       : false,
     approvalsDir: opts.includes("--no-approvals") ? undefined : path.resolve(opt("--approvals") ?? DEFAULT_APPROVALS),
+    auditSigningKey: opt("--audit-key")
+      ? {
+          keyId: opt("--audit-key-id") ?? "guard-1",
+          privateKeyPem: readFileSync(path.resolve(opt("--audit-key")!), "utf8"),
+          protectedPaths: [path.resolve(opt("--audit-key")!), auditPath],
+        }
+      : undefined,
   });
   log(`${opts.includes("--monitor") ? "monitoring" : "enforcing"} tool calls for: ${command} ${commandArgs.join(" ")} (audit: ${auditPath})`);
 

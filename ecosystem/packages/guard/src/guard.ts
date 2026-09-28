@@ -10,10 +10,17 @@
  * Every decision is appended to a hash-chained audit log (each entry carries the SHA-256 of
  * the previous one), so edits or deletions inside the log are detectable (`verifyAuditLog`).
  *
+ * Round 48 (audit tier A2 for the MCP path): with `auditSigningKey`, each entry's hash is also
+ * signed with Ed25519. The key lives in this proxy's process - separate from the agent - and
+ * the guard refuses any tool call whose arguments name the key file or the audit log, so the
+ * agent cannot read the key or rewrite the log through the server it is using. A rewrite by
+ * someone with the key (or root on the machine) still needs the chain head published
+ * elsewhere to be caught (`auditHead` gives the value to publish - tier A3).
+ *
  * This module is transport-agnostic and synchronous per message, so it is unit-testable;
  * cli.ts wires it to a spawned stdio server.
  */
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
 import { FDIAEngine, type FDIAEvaluationResult } from "@delentia/shared";
 import { OutputCompressor, EXPAND_TOOL, EXPAND_TOOL_NAME, type CompressOptions } from "./compress.js";
 import { ApprovalStore } from "./approvals.js";
@@ -40,6 +47,8 @@ export interface GuardOptions {
   compress?: CompressOptions | false;
   /** Directory for human-approval requests; omitted = approvals disabled (blocked calls stay blocked). */
   approvalsDir?: string;
+  /** Sign every audit entry (Ed25519). `protectedPaths`: files no proxied tool call may name. */
+  auditSigningKey?: { keyId: string; privateKeyPem: string; protectedPaths?: string[] };
 }
 
 export interface JsonRpcMessage {
@@ -72,6 +81,9 @@ export class Guard {
   readonly compressor?: OutputCompressor;
   /** Requests forwarded to the server whose responses we may need to rewrite, by JSON-RPC id. */
   private pending = new Map<string, { kind: "tools/list" } | { kind: "tools/call" }>();
+  private signKey?: KeyObject;
+  private signKeyId?: string;
+  private protectedPaths: string[] = [];
 
   constructor(private opts: GuardOptions = {}) {
     if (opts.compress) this.compressor = new OutputCompressor(opts.compress);
@@ -79,6 +91,19 @@ export class Guard {
     this.mode = opts.mode ?? "enforce";
     this.lastHash = opts.previousHash ?? GENESIS;
     if (opts.approvalsDir) this.approvals = new ApprovalStore(opts.approvalsDir);
+    if (opts.auditSigningKey) {
+      this.signKey = createPrivateKey(opts.auditSigningKey.privateKeyPem);
+      this.signKeyId = opts.auditSigningKey.keyId;
+      this.protectedPaths = (opts.auditSigningKey.protectedPaths ?? [])
+        .map(normalisePath)
+        .filter((p) => p.length > 0);
+    }
+  }
+
+  /** Round 48: a call naming the signing key or the audit log never reaches the server, in any mode. */
+  private touchesProtectedPath(policyPayload: string): string | undefined {
+    const haystack = normalisePath(policyPayload);
+    return this.protectedPaths.find((p) => haystack.includes(p));
   }
 
   /** True when the rule that denied a call asks for a human rather than denying outright. */
@@ -106,6 +131,35 @@ export class Guard {
     // Path rules are written with "/". Windows paths arrive as backslashes (doubled by JSON
     // escaping), so C:\Users\me\.ssh\config must still hit a ".ssh/" rule.
     const policyPayload = payload.replace(/\\+/g, "/");
+
+    const protectedHit = this.touchesProtectedPath(policyPayload);
+    if (protectedHit) {
+      this.stats.calls++;
+      this.stats.blocked++;
+      this.writeAudit({
+        upstream: this.opts.upstreamName ?? "upstream",
+        request_id: msg.id ?? null,
+        tool,
+        action,
+        arguments_sha256: sha256(payload),
+        decision: "blocked",
+        verdict: "GUARD_PROTECTED_PATH",
+        rule: "GUARD_PROTECTED_PATH",
+        reason: "the call names the guard's audit signing key or audit log",
+        future_score: 0,
+      });
+      return {
+        forward: false,
+        response: {
+          jsonrpc: "2.0",
+          id: msg.id ?? null,
+          result: {
+            isError: true,
+            content: [{ type: "text", text: "Blocked by Delentia Guard: this call refers to the guard's own audit key or audit log, which tools may not read or change." }],
+          },
+        },
+      };
+    }
 
     const evaluation = this.engine.evaluate({
       data_quality: this.opts.dataQuality ?? 0.9,
@@ -231,7 +285,10 @@ export class Guard {
     const entry = { ts: new Date().toISOString(), ...fields, prev_hash: this.lastHash };
     const hash = sha256(JSON.stringify(entry));
     this.lastHash = hash;
-    this.opts.audit(JSON.stringify({ ...entry, hash }));
+    const signature = this.signKey
+      ? { sig: edSign(null, Buffer.from(hash, "hex"), this.signKey).toString("base64url"), key_id: this.signKeyId }
+      : {};
+    this.opts.audit(JSON.stringify({ ...entry, hash, ...signature }));
   }
 }
 
@@ -250,21 +307,67 @@ export function lastAuditHash(logText: string): string {
   }
 }
 
-/** Checks every entry's hash and its link to the previous entry. Returns the first broken line (1-based) or null. */
-export function verifyAuditLog(logText: string): { ok: boolean; entries: number; broken_at?: number; problem?: string } {
+function normalisePath(p: string): string {
+  return p.replace(/\\+/g, "/").toLowerCase();
+}
+
+/** Raw Ed25519 public key (hex) of a PEM private key - what verifiers pass to verifyAuditLog. */
+export function auditPublicKeyHex(privateKeyPem: string): string {
+  const jwk = createPublicKey(createPrivateKey(privateKeyPem)).export({ format: "jwk" }) as { x: string };
+  return Buffer.from(jwk.x, "base64url").toString("hex");
+}
+
+function verifyEntrySignature(hash: string, sig: string, publicKeyHex: string): boolean {
+  try {
+    const key = createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: Buffer.from(publicKeyHex, "hex").toString("base64url") }, format: "jwk" });
+    return edVerify(null, Buffer.from(hash, "hex"), key, Buffer.from(sig, "base64url"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks every entry's hash and its link to the previous entry, and - when `publicKeys`
+ * (key_id -> Ed25519 public key hex) is given - every entry's signature. Returns the first
+ * broken line (1-based). `requireSigned`: an unsigned entry is a failure (use once signing is on).
+ */
+export function verifyAuditLog(
+  logText: string,
+  opts: { publicKeys?: Record<string, string>; requireSigned?: boolean } = {}
+): { ok: boolean; entries: number; signed: number; head?: string; broken_at?: number; problem?: string } {
   const lines = logText.split("\n").filter((l) => l.trim());
   let prev = GENESIS;
+  let signed = 0;
+  const fail = (i: number, problem: string) => ({ ok: false, entries: lines.length, signed, broken_at: i + 1, problem });
   for (let i = 0; i < lines.length; i++) {
     let entry: any;
     try {
       entry = JSON.parse(lines[i]);
     } catch {
-      return { ok: false, entries: lines.length, broken_at: i + 1, problem: "not valid JSON" };
+      return fail(i, "not valid JSON");
     }
-    const { hash, ...rest } = entry;
-    if (entry.prev_hash !== prev) return { ok: false, entries: lines.length, broken_at: i + 1, problem: "prev_hash does not match the previous entry" };
-    if (sha256(JSON.stringify(rest)) !== hash) return { ok: false, entries: lines.length, broken_at: i + 1, problem: "entry content does not match its hash" };
+    const { hash, sig, key_id, ...rest } = entry;
+    if (entry.prev_hash !== prev) return fail(i, "prev_hash does not match the previous entry");
+    if (sha256(JSON.stringify(rest)) !== hash) return fail(i, "entry content does not match its hash");
+    if (sig !== undefined) {
+      signed++;
+      if (opts.publicKeys) {
+        const pub = opts.publicKeys[String(key_id)];
+        if (!pub) return fail(i, `entry signed by an unknown key "${key_id}"`);
+        if (!verifyEntrySignature(hash, String(sig), pub)) return fail(i, "signature does not verify");
+      }
+    } else if (opts.requireSigned) {
+      return fail(i, "entry is not signed");
+    }
     prev = hash;
   }
-  return { ok: true, entries: lines.length };
+  return { ok: true, entries: lines.length, signed, head: lines.length ? prev : undefined };
+}
+
+/** The value to publish outside this machine (tier A3): entry count, last hash and its timestamp. */
+export function auditHead(logText: string): { entries: number; hash: string; ts?: string } {
+  const lines = logText.split("\n").filter((l) => l.trim());
+  if (!lines.length) return { entries: 0, hash: GENESIS };
+  const last = JSON.parse(lines[lines.length - 1]);
+  return { entries: lines.length, hash: last.hash, ts: last.ts };
 }
