@@ -19,3 +19,4 @@ export * from "./cord-security.js";
 export * from "./ed25519.js";
 export * from "./session-scoping.js";
 export * from "./context-store.js";
+export * from "./architect-token.js";

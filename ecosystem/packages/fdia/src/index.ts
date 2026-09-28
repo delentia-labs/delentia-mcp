@@ -16,7 +16,12 @@ import {
   type FDIARule,
   FDIAPolicySchema,
   FDIARuleSchema,
+  configureTrustedArchitectKeys,
+  parseTrustedArchitectKeys,
 } from "@delentia/shared";
+
+// Round 48: keys trusted to sign Architect tokens come only from the environment.
+configureTrustedArchitectKeys(parseTrustedArchitectKeys(process.env.FDIA_ARCHITECT_KEYS_JSON));
 
 // Active engine instance for the MCP server session
 let activeEngine: FDIAEngine = defaultFDIAEngine;
