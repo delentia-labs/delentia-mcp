@@ -10,10 +10,10 @@
 [![Edge Health Check](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
-[![Benchmarks](https://img.shields.io/badge/Benchmarks-100%25%20Deterministic-blueviolet)](./BENCHMARKS.md)
+[![Benchmarks](https://img.shields.io/badge/Benchmarks-measured-blueviolet)](./BENCHMARKS.md)
 [![Website](https://img.shields.io/badge/Website-delentia.com-emerald)](https://delentia.com)
 
-**The World's First Deterministic Sovereign AI Operating System Gateway.**  
+**Stop rogue AI-agent tool calls before they run: a deterministic policy gate with an audit trail.**  
 Bridging autonomous AI agents (Claude, Cursor, VS Code, Windsurf, Codex) to the Delentia Sovereign Edge Network.  
 📊 **[View Empirical Benchmarks & 30-Second Visual Proof](./BENCHMARKS.md)**
 
@@ -41,21 +41,24 @@ The **Delentia Sovereign AI Operating System** provides a mathematically verifia
          ┌────────────────────────────┼────────────────────────────┐
          ▼                            ▼                            ▼
   [ 1. FDIA Security ]        [ 2. RCT-7 Thinking ]        [ 3. Delta & JITNA ]
-Deterministic ZK Gate         7-Stage Reverse Mental       Context Compression
-    F = (D^I) * A             Anti-Hallucination Pipeline  & 1+4 LoRA Swarms
+Deterministic policy gate     7-stage reasoning            Context compression
+    F = (D^I) * A             checklist                    & signed task packets
 ```
 
 ---
 
-## 🛠️ The 5 Sovereign Core Tools
+## 🛠️ The 6 Tools
 
-| Tool Name | Type | Key Mission | Mathematical / Functional Core |
-| :--- | :---: | :--- | :--- |
-| **`evaluate_fdia`** | Read-Only | Prompt Injection & Rogue Action Preemption | Evaluates F = (D^I) * A to mathematically cut off unauthorized tool executions with SHA-256 audit digest. |
-| **`configure_policy`** | Action | Enterprise Tool-Calling Policy Gate | Configures RBAC, action blacklists, dual-signoff rules, and safety thresholds for parameter A. |
-| **`rct_think`** | Read-Only | 7-Stage Reverse Component Thinking | Eliminates LLM hallucination through Inversion Anchors; yields 1.0000 Alignment Index. |
-| **`compress_context`** | Read-Only | State Differential Compression | Compresses verbose dialogue transcripts by 74.2% to 91.5% token reduction with state hashing. |
-| **`orchestrate_swarm`** | Read-Only | 1+4 Specialized Swarm Routing | Decomposes goals into JITNA v3 packets across Router, Guardian, Executor, and Scribe pillars. |
+| Tool Name | Type | What it does |
+| :--- | :---: | :--- |
+| **`evaluate_fdia`** | Read-Only | Scores a proposed action with F = (D^I) × A against your policy and returns AUTHORIZED or a block verdict with a SHA-256 audit digest. A = 0 (policy says no, or a required human signature is missing) always gives F = 0. Actions that need a human require an Ed25519-signed Architect token from a key the deployment trusts. |
+| **`configure_policy`** | Action | Sets the rules for *your* session only (RBAC, blocked actions, dual sign-off, safety threshold). The deployment's default policy is never changed. |
+| **`rct_think`** | Read-Only | Walks a 7-stage reasoning checklist over a plan and returns a heuristic alignment score. It helps catch vague or misaligned plans; it does not guarantee correct answers. |
+| **`compress_context`** | Read-Only | Deterministic compression of long tool output and logs (no LLM call). Measured ~70% fewer tokens on real logs while literal-wording questions stayed answerable ([benchmark](./BENCHMARKS.md)). Can keep the original for `expand_context`. |
+| **`expand_context`** | Read-Only | Returns lines of the original behind a compressed result, by line range or search, when the compressed version left something out. |
+| **`orchestrate_swarm`** | Read-Only | Splits a goal into signed JITNA task packets for several roles. |
+
+> **Advisory vs enforcing:** these tools help an agent that chooses to call them. To *enforce* a policy on every tool call of another MCP server, use **Delentia Guard** (`delentia-guard`), an stdio proxy with a signed audit log.
 
 ---
 
