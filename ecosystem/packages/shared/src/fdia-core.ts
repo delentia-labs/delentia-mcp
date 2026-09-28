@@ -93,6 +93,10 @@ export type ArchitectCustomPolicy = FDIAPolicy;
 /**
  * ZK-FDIA Safety Request Schema with Dynamic Policy Context
  */
+/** Round 48: the numeric domain evaluate() enforces (same as FDIARequestSchema). */
+export const FDIA_MAX_DATA_QUALITY = 1.0;
+export const FDIA_MIN_INTENT_PRECISION = 0.5;
+
 export const FDIARequestSchema = z.object({
   data_quality: z
     .number()
@@ -864,8 +868,14 @@ export class FDIAEngine {
     // Fail closed on malformed numeric input (non-finite, negative, or
     // otherwise out-of-domain D/I) instead of letting an invalid score slip
     // through as if it were a legitimate low/high value.
+    // Round 48: the domain is the one FDIARequestSchema publishes
+    // (data_quality in [0, 1], intent_precision >= 0.5). Tool handlers pass
+    // raw MCP arguments straight through (a JSON-Schema `minimum` is only a
+    // hint), and before this check intent_precision = 0 made F = D^0 = 1, so
+    // ANY data quality - even 0, since JS evaluates 0^0 as 1 - was AUTHORIZED.
     const numericInputInvalid =
-      !Number.isFinite(data_quality) || data_quality < 0 || !Number.isFinite(intent_precision) || intent_precision < 0;
+      !Number.isFinite(data_quality) || data_quality < 0 || data_quality > FDIA_MAX_DATA_QUALITY ||
+      !Number.isFinite(intent_precision) || intent_precision < FDIA_MIN_INTENT_PRECISION;
     if (numericInputInvalid) {
       effectiveA = 0;
       violations.push(`Invalid numeric input: data_quality=${data_quality}, intent_precision=${intent_precision}.`);
@@ -879,7 +889,7 @@ export class FDIAEngine {
 
     if (numericInputInvalid) {
       verdict = "SECURITY_POLICY_VIOLATION";
-      reason = `Rejected: data_quality and intent_precision must be finite, non-negative numbers (got data_quality=${data_quality}, intent_precision=${intent_precision}). Fail-closed.`;
+      reason = `Rejected: data_quality and intent_precision must be finite, with data_quality in [0, ${FDIA_MAX_DATA_QUALITY}] and intent_precision >= ${FDIA_MIN_INTENT_PRECISION} (got data_quality=${data_quality}, intent_precision=${intent_precision}). Fail-closed.`;
     } else if (effectiveA === 0) {
       if (aEval.ruleTriggered === "SECURITY_RBAC_DENIED") {
         verdict = "SECURITY_RBAC_DENIED";
