@@ -45,6 +45,7 @@
   "vars": {
     "ENVIRONMENT": "production",
     "SERVER_NAME": "Delentia FDIA Security MCP",
+    "AUDIT_ANCHOR_KEYS_JSON": "[{\"key_id\":\"guard-1\",\"public_key_hex\":\"105b59954370b1658af3073d33465709b3c87850087ca1ebc3b7248948a0f764\"},{\"key_id\":\"delentia-os-1\",\"public_key_hex\":\"b1c1a1984bc892228cff295a8988c836320a3d811066c651371526b731d01f36\"}]",
     "FDIA_ARCHITECT_KEYS_JSON": "[{\"key_id\":\"architect-1\",\"role\":\"Chief_Architect\",\"public_key_hex\":\"803ae137d31b64cdaa181ae54f2a914fbc27e96c66dafdc342f6b47af3c89567\"}]"
     // Round 50 (audit tier A3): add the public keys allowed to anchor audit
     // chain heads at POST /v1/audit/anchor (Guard's --audit-key and
