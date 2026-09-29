@@ -17,8 +17,12 @@ import {
   preverifyArchitectTokens,
   getConfiguredTrustedArchitectKeys,
   architectPayloadFor,
+  parseTrustedAnchorKeys,
+  validateAnchorSubmission,
+  verifyAnchorSignature,
+  type AnchorSubmission,
 } from "@delentia/shared";
-export { MEEGrowthSessionDO, MEEGrowthGatedDO } from "@delentia/shared";
+export { MEEGrowthSessionDO, MEEGrowthGatedDO, AuditAnchorDO } from "@delentia/shared";
 import { executeRCT7 } from "@delentia/mcp-rct7";
 export { FDIASessionDO } from "./session-do.js";
 import { callPythonKernelFdia } from "./pythonKernelBridge.js";
@@ -66,6 +70,11 @@ interface Env {
   // Round 48: bearer token for the kernel API (set with
   // `wrangler secret put PYTHON_KERNEL_TOKEN`, never in wrangler.jsonc).
   PYTHON_KERNEL_TOKEN?: string;
+  // Round 50 (audit tier A3): witness for audit-log chain heads. The keys are
+  // public ({key_id, public_key_hex}), so a plain var is fine. Unset = the
+  // /v1/audit/anchor endpoints answer 501 and store nothing.
+  AUDIT_ANCHOR_KEYS_JSON?: string;
+  AUDIT_ANCHOR_DO?: DurableObjectNamespace;
 }
 
 /**
@@ -174,6 +183,48 @@ export default {
             "Access-Control-Allow-Headers": "Content-Type, Authorization, x-delentia-intent, x-session-id",
           },
         });
+      }
+
+      // Round 50 (audit tier A3): append-only witness for audit chain heads.
+      if (url.pathname === "/v1/audit/anchor" || url.pathname.startsWith("/v1/audit/anchor/")) {
+        const anchorJson = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        const trustedAnchorKeys = parseTrustedAnchorKeys(env.AUDIT_ANCHOR_KEYS_JSON);
+        if (!env.AUDIT_ANCHOR_DO || trustedAnchorKeys.length === 0) {
+          return anchorJson({ error: "not_implemented", message: "The audit anchor witness is not configured on this deployment." }, 501);
+        }
+        if (url.pathname === "/v1/audit/anchor" && request.method === "POST") {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return anchorJson({ error: "invalid_json" }, 400);
+          }
+          const problem = validateAnchorSubmission(body);
+          if (problem) return anchorJson({ error: "invalid_anchor", message: problem }, 400);
+          const sub = body as AnchorSubmission;
+          const clean: AnchorSubmission = {
+            key_id: sub.key_id, entries: sub.entries, head: sub.head, signed_at: sub.signed_at, signature: sub.signature,
+          };
+          if (!(await verifyAnchorSignature(clean, trustedAnchorKeys))) {
+            return anchorJson({ error: "invalid_signature", message: "unknown key_id or the signature does not verify" }, 403);
+          }
+          const stub = env.AUDIT_ANCHOR_DO.get(env.AUDIT_ANCHOR_DO.idFromName(clean.key_id));
+          const res = await stub.fetch("http://anchor/append", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(clean),
+          });
+          return anchorJson(await res.json(), res.status);
+        }
+        const keyId = decodeURIComponent(url.pathname.slice("/v1/audit/anchor/".length));
+        if (request.method === "GET" && keyId && trustedAnchorKeys.some((k) => k.key_id === keyId)) {
+          const stub = env.AUDIT_ANCHOR_DO.get(env.AUDIT_ANCHOR_DO.idFromName(keyId));
+          const res = await stub.fetch(`http://anchor/list?limit=${encodeURIComponent(url.searchParams.get("limit") ?? "100")}`);
+          return anchorJson({ key_id: keyId, ...(await res.json() as object) }, res.status);
+        }
+        return anchorJson({ error: "not_found" }, 404);
       }
 
       // 1. Health Check Endpoint

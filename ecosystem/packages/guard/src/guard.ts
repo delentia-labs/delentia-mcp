@@ -21,7 +21,7 @@
  * cli.ts wires it to a spawned stdio server.
  */
 import { createHash, createPrivateKey, createPublicKey, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
-import { FDIAEngine, type FDIAEvaluationResult } from "@delentia/shared";
+import { FDIAEngine, anchorMessage, checkAnchors, type AnchorSubmission, type FDIAEvaluationResult } from "@delentia/shared";
 import { OutputCompressor, EXPAND_TOOL, EXPAND_TOOL_NAME, type CompressOptions } from "./compress.js";
 import { ApprovalStore } from "./approvals.js";
 
@@ -373,4 +373,26 @@ export function auditHead(logText: string): { entries: number; hash: string; ts?
   if (!lines.length) return { entries: 0, hash: GENESIS };
   const last = JSON.parse(lines[lines.length - 1]);
   return { entries: lines.length, hash: last.hash, ts: last.ts };
+}
+
+/**
+ * Round 50 (audit tier A3): an anchor for the current head of `logText`,
+ * signed with the audit key, ready to POST to a witness's /v1/audit/anchor.
+ */
+export function signAnchor(privateKeyPem: string, keyId: string, logText: string,
+                           signedAt: string = new Date().toISOString()): AnchorSubmission {
+  const head = auditHead(logText);
+  if (head.entries < 1) throw new Error("the audit log is empty; nothing to anchor");
+  const message = anchorMessage(keyId, head.entries, head.hash, signedAt);
+  const signature = edSign(null, Buffer.from(message, "utf8"), createPrivateKey(privateKeyPem)).toString("hex");
+  return { key_id: keyId, entries: head.entries, head: head.hash, signed_at: signedAt, signature };
+}
+
+/** Checks a witness's anchors (GET /v1/audit/anchor/<key_id>) against the local log. */
+export function checkAuditAnchors(
+  logText: string,
+  witness: { anchors?: Array<{ entries: number; head: string; received_at: string }>; conflicts?: unknown[] }
+): { ok: boolean; checked: number; problems: string[] } {
+  const hashes = logText.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l).hash as string);
+  return checkAnchors(witness.anchors ?? [], (n) => hashes[n - 1], witness.conflicts ?? []);
 }

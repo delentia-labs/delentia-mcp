@@ -124,6 +124,25 @@ delentia-guard --head ~/.delentia/guard-audit.jsonl    # entry count + last hash
   another repo). Without that, someone who has the key or root on the machine could rewrite the
   whole log; the published head is what exposes it.
 
+### Anchoring the head outside the machine (tier A3)
+
+A signed chain still cannot show that the whole log was rewritten by someone who has the key or
+root on the machine. Anchor the head at an outside witness from time to time (a scheduled task works):
+
+```bash
+delentia-guard anchor ~/.delentia/guard-audit.jsonl --url <witness> --audit-key ~/.delentia/keys/guard-audit.pem --audit-key-id guard-1
+delentia-guard check-anchors ~/.delentia/guard-audit.jsonl --url <witness> --audit-key-id guard-1
+```
+
+- The witness is the fdia Worker's `/v1/audit/anchor` endpoint. It accepts only keys listed in its
+  `AUDIT_ANCHOR_KEYS_JSON` (public keys), stores every head append-only with its own receive time,
+  and refuses a lower entry count (rollback) or the same count with a different head (fork). It
+  keeps those refusals as evidence.
+- `check-anchors` fails when any anchored entry no longer hashes to the anchored head (rewritten),
+  when the log is shorter than an anchor (truncated), or when the witness recorded a conflict.
+- Delentia-OS anchors its own audit chain with the same protocol: `delentia audit-chain anchor`.
+- Changes made after the most recent anchor are not covered until the next one, so anchor often.
+
 ## Limits
 
 - Only tools reached *through* the guard are covered; tools the agent has from other, unwrapped
