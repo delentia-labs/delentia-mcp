@@ -6,6 +6,10 @@
  *   delentia-guard --verify <audit.jsonl> [--pubkey <key_id>=<hex>] [--require-signed]
  *   delentia-guard --head <audit.jsonl>     entry count + last hash (publish it elsewhere)
  *   delentia-guard keygen --out <pem> [--key-id <id>]   create an audit signing key
+ *   delentia-guard anchor <audit.jsonl> --url <witness> --audit-key <pem> --audit-key-id <id>
+ *                                          publish the signed chain head to an outside witness (A3)
+ *   delentia-guard check-anchors <audit.jsonl> --url <witness> --audit-key-id <id>
+ *                                          check every anchored head against the local log
  *   delentia-guard pending                 list approval requests
  *   delentia-guard approve <id>            approve one blocked call (interactive terminal only)
  *
@@ -37,7 +41,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Guard, auditHead, auditPublicKeyHex, lastAuditHash, verifyAuditLog, type JsonRpcMessage } from "./guard.js";
+import { Guard, auditHead, auditPublicKeyHex, checkAuditAnchors, lastAuditHash, signAnchor, verifyAuditLog, type JsonRpcMessage } from "./guard.js";
 import { ApprovalStore } from "./approvals.js";
 
 const DEFAULT_APPROVALS = path.join(homedir(), ".delentia", "approvals");
@@ -101,6 +105,8 @@ if (argv[0] === "--verify") {
     process.stdout.write(`${JSON.stringify({ key_id: keyId, public_key_hex: auditPublicKeyHex(pem) })}\n`);
     log(`verify later with: delentia-guard --verify <audit.jsonl> --pubkey ${keyId}=<public_key_hex> --require-signed`);
   }
+} else if (argv[0] === "anchor" || argv[0] === "check-anchors") {
+  void anchorCommand(argv[0]);
 } else if (argv[0] === "pending") {
   const store = new ApprovalStore(argv[1] === "--approvals" && argv[2] ? argv[2] : DEFAULT_APPROVALS);
   const now = Date.now();
@@ -115,6 +121,46 @@ if (argv[0] === "--verify") {
   void approve(argv[1], argv[2] === "--approvals" && argv[3] ? argv[3] : DEFAULT_APPROVALS);
 } else {
   run();
+}
+
+/** Round 50 (audit tier A3): publish / check chain heads at an outside witness. */
+async function anchorCommand(command: string): Promise<void> {
+  const arg = (name: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+  const file = argv[1];
+  const base = arg("--url")?.replace(/\/+$/, "");
+  const keyId = arg("--audit-key-id");
+  const keyFile = arg("--audit-key");
+  if (!file || !existsSync(file) || !base || !keyId || (command === "anchor" && !keyFile)) {
+    log(command === "anchor"
+      ? "usage: delentia-guard anchor <audit.jsonl> --url <witness> --audit-key <pem> --audit-key-id <id>"
+      : "usage: delentia-guard check-anchors <audit.jsonl> --url <witness> --audit-key-id <id>");
+    process.exitCode = 2;
+    return;
+  }
+  const logText = readFileSync(file, "utf8");
+  try {
+    if (command === "anchor") {
+      const body = signAnchor(readFileSync(keyFile!, "utf8"), keyId, logText);
+      const res = await fetch(`${base}/v1/audit/anchor`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      process.stdout.write(`${JSON.stringify({ status: res.status, ...((await res.json()) as object) })}\n`);
+      process.exitCode = res.ok ? 0 : 1;
+    } else {
+      const res = await fetch(`${base}/v1/audit/anchor/${encodeURIComponent(keyId)}?limit=1000`);
+      if (!res.ok) {
+        process.stdout.write(`${JSON.stringify({ ok: false, status: res.status, ...((await res.json()) as object) })}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      const report = checkAuditAnchors(logText, (await res.json()) as Parameters<typeof checkAuditAnchors>[1]);
+      process.stdout.write(`${JSON.stringify(report)}\n`);
+      process.exitCode = report.ok ? 0 : 1;
+    }
+  } catch (err) {
+    log(`${command} failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
+  }
 }
 
 async function approve(id: string | undefined, dir: string): Promise<void> {
