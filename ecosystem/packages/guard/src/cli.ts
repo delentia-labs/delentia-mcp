@@ -18,6 +18,7 @@
  *   --monitor                log what would be blocked, but forward everything
  *   --audit <file>           audit log path (default: ~/.delentia/guard-audit.jsonl)
  *   --map tool=action,...    map upstream tool names to policy action names
+ *   --allow-hosts a.com,b.org  refuse any tool call that names an http(s) address on another host (and subdomains of these are fine); off when omitted
  *   --role <role>            caller role for RBAC rules (default: developer)
  *   --name <name>            upstream name recorded in the audit log (default: the command)
  *   --compress               compress large tool results; adds the delentia_expand_context tool
@@ -224,6 +225,7 @@ function run(): void {
     mode: opts.includes("--monitor") ? "monitor" : "enforce",
     actionMap,
     callerRole: opt("--role"),
+    allowedHosts: (opt("--allow-hosts") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
     upstreamName: opt("--name") ?? [command, ...commandArgs].join(" ").slice(0, 120),
     previousHash: existsSync(auditPath) ? lastAuditHash(readFileSync(auditPath, "utf8")) : undefined,
     audit: (line) => appendFileSync(auditPath, line + "\n"),

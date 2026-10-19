@@ -8,18 +8,19 @@
   "rules": [
     {
       "rule_id": "READ-ALLOW",
-      "description": "Reading, listing and searching are allowed.",
+      "description": "Reading, listing and searching are allowed, except files that hold secrets (keys, .env files, credential files, system password files): reading one is how it leaves the machine.",
       "intent_patterns": ["read_*", "list_*", "get_*", "search_*", "find_*", "query_*", "directory_tree", "*_info", "*_status", "*_diff", "*_log", "*_show", "fetch", "fetch_*"],
-      "action_type": "ALLOW",
-      "assigned_A": 1
+      "action_type": "CONDITIONAL",
+      "assigned_A": 1,
+      "denied_paths": [".env", ".ssh/", "id_rsa", "id_ed25519", ".pem", ".key", ".p12", ".pfx", "credentials.json", "secrets.", ".aws/credentials", ".npmrc", ".netrc", ".git-credentials", "/etc/shadow", "/etc/passwd", "c:/windows/system32/config"]
     },
     {
       "rule_id": "WRITE-NO-SECRETS",
-      "description": "Writes are allowed except to secrets, keys, git internals and system paths.",
+      "description": "Writes are allowed except to secrets, keys, git internals, system paths and the files that run code by themselves (CI workflows, shell start-up files, package-manager configs).",
       "intent_patterns": ["write_*", "edit_*", "create_*", "update_*", "move_*", "rename_*", "save_*", "apply_*", "push_files", "create_or_update_file", "git_add", "git_commit"],
       "action_type": "CONDITIONAL",
       "assigned_A": 1,
-      "denied_paths": [".env", ".git/", "id_rsa", "id_ed25519", ".ssh/", ".pem", ".key", "credentials", "secrets", "/etc/", "c:/windows/"]
+      "denied_paths": [".env", ".git/", "id_rsa", "id_ed25519", ".ssh/", ".pem", ".key", "credentials", "secrets", "/etc/", "c:/windows/", ".github/workflows/", ".gitlab-ci", ".bashrc", ".zshrc", ".profile", ".bash_profile", ".npmrc", ".netrc", ".gitconfig", "crontab", "authorized_keys"]
     },
     {
       "rule_id": "DESTRUCTIVE-BLOCK",

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/mcp-server-card.json",
   "name": "Delentia Sovereign AI Ecosystem",
-  "version": "2.1.1",
-  "description": "Unified All-in-One Sovereign AI Operating System MCP Server bundling all 4 Core Pillars: FDIA Security, RCT-7 Reasoning, Delta Compression, and JITNA Swarm Orchestration.",
+  "version": "2.1.2",
+  "description": "Advisory MCP tools (policy score, 7-step reasoning checklist, deterministic context compression, signed task packets) hosted on Cloudflare Workers, reached through a stdio bridge. The tools are advisory: to enforce a policy on every tool call use delentia-guard.",
   "vendor": {
     "name": "Delentia Labs",
     "url": "https://delentia.com",
