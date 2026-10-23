@@ -9,7 +9,7 @@ Thank you for your interest in contributing to the **Delentia Sovereign AI Opera
 2. **Client Integrations:**
    - Pull Requests adding configuration examples or connectors for new AI IDEs, agent runtimes, or frameworks are welcome.
 3. **Core Sovereign Architecture:**
-   - The core mathematical engine (ZK-FDIA, RCT-7, Delta Engine, and JITNA) is maintained by Delentia Labs under Chief Architect Ittirit Saengow.
+   - The core mathematical engine (FDIA gate, RCT-7, Delta compression and JITNA) is maintained by Delentia Labs under Chief Architect Ittirit Saengow.
 
 ## Code of Conduct
 

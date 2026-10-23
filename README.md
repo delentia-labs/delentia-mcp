@@ -14,7 +14,7 @@
 [![Website](https://img.shields.io/badge/Website-delentia.com-emerald)](https://delentia.com)
 
 **What this package is:** a small stdio bridge that lets MCP clients (Claude, Cursor, VS Code, Windsurf, Codex) call six tools hosted on Delentia's Cloudflare Workers. **The tools are advisory**: an agent that does not call `evaluate_fdia` is not stopped by it. **To stop tool calls before they run, use [Delentia Guard](ecosystem/docs/GUARD.md)** (`npx delentia-guard`), a local proxy that checks every call and keeps a signed, hash-chained log.  
-📊 **[View Empirical Benchmarks & 30-Second Visual Proof](./BENCHMARKS.md)**
+📊 **[Measured results, their limits, and the figures we withdrew](./BENCHMARKS.md)**
 
 ---
 
