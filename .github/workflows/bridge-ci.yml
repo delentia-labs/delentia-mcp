@@ -1,0 +1,23 @@
+name: Bridge CI
+
+# The npm package `delentia-mcp` (bin/cli.js) is the stdio bridge; its tests run the real CLI against a real local HTTP server.
+on:
+  pull_request:
+    paths: ["bin/**", "test/**", "package.json", ".github/workflows/bridge-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["bin/**", "test/**", "package.json", ".github/workflows/bridge-ci.yml"]
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Bridge tests
+        run: npm test

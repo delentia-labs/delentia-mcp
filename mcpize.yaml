@@ -5,7 +5,7 @@ version: 1
 
 name: "delentia-mcp"
 slug: "delentia-mcp"
-description: "Stop rogue AI-agent tool calls before they run: a deterministic, policy-based allow/deny gate (FDIA) with a SHA-256 audit digest, plus structured reasoning (RCT-7), context compression (Delta) and Ed25519-signed task packets."
+description: "Advisory MCP tools (policy score, 7-step reasoning checklist, deterministic context compression, signed task packets) hosted on Cloudflare Workers, reached through a stdio bridge. The tools are advisory: to enforce a policy on every tool call use delentia-guard."
 
 runtime: nodejs
 

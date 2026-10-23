@@ -1,8 +1,8 @@
 {
   "name": "delentia-mcp",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "mcpName": "io.github.delentia-labs/delentia-mcp",
-  "description": "Stop rogue AI-agent tool calls before they run: deterministic policy gate with audit digest. Zero-config MCP connector for Claude, Cursor, and Windsurf.",
+  "description": "Advisory MCP tools for Claude, Cursor and Windsurf: policy score, reasoning checklist, context compression (stdio bridge to a hosted endpoint). To enforce a policy on every tool call use delentia-guard.",
   "type": "module",
   "main": "bin/cli.js",
   "bin": {
@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "echo Delentia build ready",
-    "start": "node bin/cli.js"
+    "start": "node bin/cli.js",
+    "test": "node --test test/*.test.mjs"
   },
   "files": [
     "bin",

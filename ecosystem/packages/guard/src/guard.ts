@@ -49,6 +49,11 @@ export interface GuardOptions {
   approvalsDir?: string;
   /** Sign every audit entry (Ed25519). `protectedPaths`: files no proxied tool call may name. */
   auditSigningKey?: { keyId: string; privateKeyPem: string; protectedPaths?: string[] };
+  /**
+   * Round 91: hosts a tool call may name in a URL (a host and its subdomains). Omitted = no host check (unchanged). With a list, any http(s) address in the arguments whose host is not on it
+   * is refused (or logged as would_block in monitor mode): a "read" tool such as fetch is otherwise a way to carry what was read to any address.
+   */
+  allowedHosts?: string[];
 }
 
 export interface JsonRpcMessage {
@@ -109,6 +114,24 @@ export class Guard {
     return this.protectedPaths.find((p) => haystack.includes(p));
   }
 
+  /** The first host named in an http(s) address inside the arguments that is not on `allowedHosts` (undefined when no list is set or every host is allowed). */
+  private disallowedHost(args: unknown): string | undefined {
+    const allowed = (this.opts.allowedHosts ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean);
+    if (!allowed.length) return undefined;
+    for (const text of stringsIn(args)) {
+      for (const m of text.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)) {
+        let host = "";
+        try {
+          host = new URL(m[0]).hostname.toLowerCase();
+        } catch {
+          return m[0].slice(0, 80);                              // an address we cannot read is not an allowed one
+        }
+        if (!allowed.some((a) => host === a || host.endsWith("." + a))) return host;
+      }
+    }
+    return undefined;
+  }
+
   /** True when the rule that denied a call asks for a human rather than denying outright. */
   private isHumanApprovable(ruleId: string): boolean {
     const rule = this.engine.getPolicy().rules.find((r) => r.rule_id === ruleId);
@@ -133,9 +156,11 @@ export class Guard {
     }
     // Path rules are written with "/". Windows paths arrive as backslashes (doubled by JSON
     // escaping), so C:\Users\me\.ssh\config must still hit a ".ssh/" rule.
-    const policyPayload = payload.replace(/\\+/g, "/");
+    // Round 91: the text a call WRITES is not a path it touches. A README that explains "copy .env.example to .env" was refused by the ".env" rule because the rule read the whole argument
+    // text; the rules now read the arguments without the content-like fields whenever the call also names a path. (The audit hash still covers everything.)
+    const policyPayload = policyText(args, payload).replace(/\\+/g, "/");
 
-    const protectedHit = this.touchesProtectedPath(policyPayload);
+    const protectedHit = this.touchesProtectedPath(payload.replace(/\\+/g, "/"));      // the key and the audit log are protected against the WHOLE argument text, content included
     if (protectedHit) {
       this.stats.calls++;
       this.stats.blocked++;
@@ -162,6 +187,38 @@ export class Guard {
           },
         },
       };
+    }
+
+    const badHost = this.disallowedHost(args);
+    if (badHost) {
+      this.writeAudit({
+        upstream: this.opts.upstreamName ?? "upstream",
+        request_id: msg.id ?? null,
+        tool,
+        action,
+        arguments_sha256: sha256(payload),
+        decision: this.mode === "enforce" ? "blocked" : "would_block",
+        verdict: "GUARD_EGRESS_HOST",
+        rule: "GUARD_EGRESS_HOST",
+        reason: `the call names an address on a host that is not allowed (${badHost})`,
+        future_score: 0,
+      });
+      if (this.mode === "enforce") {
+        this.stats.calls++;
+        this.stats.blocked++;
+        return {
+          forward: false,
+          response: {
+            jsonrpc: "2.0",
+            id: msg.id ?? null,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: `Blocked by Delentia Guard: this call names an address on ${badHost}, which is not on the allowed host list.` }],
+            },
+          },
+        };
+      }
+      this.stats.would_block++;
     }
 
     const evaluation = this.engine.evaluate({
@@ -308,6 +365,43 @@ export function lastAuditHash(logText: string): string {
   } catch {
     return GENESIS;
   }
+}
+
+// Round 91: fields that carry what a call writes (not where). Only dropped when the same object also names a path-like field, so a tool whose only argument is `content` is read whole.
+const CONTENT_KEYS = new Set(["content", "contents", "text", "body", "data", "new_str", "old_str", "new_string", "old_string", "newtext", "oldtext", "patch", "diff"]);
+const PATH_KEYS = new Set(["path", "paths", "file", "files", "file_path", "filepath", "filename", "filenames", "target", "source", "destination", "dest", "dir", "directory", "uri", "url", "edits", "src", "dst"]);
+
+function withoutContent(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutContent);
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const hasPath = Object.keys(obj).some((k) => PATH_KEYS.has(k.toLowerCase()));
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (hasPath && CONTENT_KEYS.has(k.toLowerCase())) continue;
+      out[k] = withoutContent(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** The text the policy rules read: the arguments without content-like fields when the call names a path; the whole payload otherwise (and whenever it cannot be read). */
+function policyText(args: unknown, whole: string): string {
+  try {
+    return JSON.stringify(withoutContent(args)).slice(0, MAX_PAYLOAD_CHARS);
+  } catch {
+    return whole;
+  }
+}
+
+/** Every string anywhere in a JSON value (bounded). */
+function stringsIn(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (out.length > 500 || depth > 8) return out;
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) value.forEach((v) => stringsIn(v, out, depth + 1));
+  else if (value && typeof value === "object") Object.values(value as object).forEach((v) => stringsIn(v, out, depth + 1));
+  return out;
 }
 
 function normalisePath(p: string): string {

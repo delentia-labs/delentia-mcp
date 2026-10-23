@@ -2,20 +2,19 @@
 
 <img src="./assets/delentia-green-logo.png" alt="Delentia Labs Logo" width="128" height="128" />
 
-# Delentia Sovereign AI Operating System
-### Official Model Context Protocol (MCP) Public Client & Connector
+# Delentia MCP connector
+### Advisory policy-check, reasoning-checklist and context-compression tools for MCP agents, plus a pointer to Delentia Guard (the enforcing proxy)
 
 [![Release](https://img.shields.io/github/v/release/delentia-labs/delentia-mcp?color=brightgreen)](https://github.com/delentia-labs/delentia-mcp/releases)
-[![Smithery Quality](https://img.shields.io/badge/Smithery%20Quality-100%2F100-brightgreen)](https://smithery.ai/servers/delentia/delentia-sovereign)
+[![Smithery listing](https://img.shields.io/badge/Smithery-listed-lightgrey)](https://smithery.ai/servers/delentia/delentia-sovereign)
 [![Edge Health Check](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
 [![Benchmarks](https://img.shields.io/badge/Benchmarks-measured-blueviolet)](./BENCHMARKS.md)
 [![Website](https://img.shields.io/badge/Website-delentia.com-emerald)](https://delentia.com)
 
-**Stop rogue AI-agent tool calls before they run: a deterministic policy gate with an audit trail.**  
-Bridging autonomous AI agents (Claude, Cursor, VS Code, Windsurf, Codex) to the Delentia Sovereign Edge Network.  
-📊 **[View Empirical Benchmarks & 30-Second Visual Proof](./BENCHMARKS.md)**
+**What this package is:** a small stdio bridge that lets MCP clients (Claude, Cursor, VS Code, Windsurf, Codex) call six tools hosted on Delentia's Cloudflare Workers. **The tools are advisory**: an agent that does not call `evaluate_fdia` is not stopped by it. **To stop tool calls before they run, use [Delentia Guard](ecosystem/docs/GUARD.md)** (`npx delentia-guard`), a local proxy that checks every call and keeps a signed, hash-chained log.  
+📊 **[Measured results, their limits, and the figures we withdrew](./BENCHMARKS.md)**
 
 ---
 
@@ -23,7 +22,7 @@ Bridging autonomous AI agents (Claude, Cursor, VS Code, Windsurf, Codex) to the 
 
 ## 🏛️ Executive Architectural Overview
 
-The **Delentia Sovereign AI Operating System** provides a mathematically verifiable layer of defense, reasoning rigor, context compression, and swarm coordination for autonomous AI workflows:
+The hosted tools give an agent a deterministic policy score (F = D^I x A, same inputs, same answer), a seven-step reasoning checklist, deterministic context compression and signed task packets. They are checks an agent can ask for, not guarantees:
 
 ```text
        ┌─────────────────────────────────────────────────────────────┐
@@ -72,6 +71,7 @@ npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp
 ```
 
 > **Developer Sandbox Free Tier**: Includes 50 daily free calls per caller IP out of the box with zero registration required!  
+> The count is kept in memory by each Worker instance, so it is a best-effort limit (it can reset when an instance restarts). Past the limit a `tools/call` returns HTTP 429 with JSON-RPC error code `-32002`; `tools/list` and `initialize` are not counted.  
 > **Paid tier (preview)**: For a higher quota, pass a Zuplo API Key from the [Delentia Developer Portal](https://delentia-gateway-main-c7624a5.zuplo.site/pricing):
 > ```bash
 > npx -y mcp-remote https://delentia-sovereign-mcp.delentia.workers.dev/mcp --header "Authorization: Bearer YOUR_ZUPLO_API_KEY"

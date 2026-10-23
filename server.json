@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.delentia-labs/delentia-mcp",
   "title": "Delentia Sovereign AI Operating System",
-  "description": "Stop rogue AI-agent tool calls before they run: deterministic policy gate + audit digest.",
+  "description": "Advisory MCP tools for Claude, Cursor and Windsurf: policy score, reasoning checklist, context compression (stdio bridge to a hosted endpoint). To enforce a policy on every tool call use delentia-guard.",
   "repository": {
     "url": "https://github.com/delentia-labs/delentia-mcp",
     "source": "github"
   },
-  "version": "2.1.1",
+  "version": "2.1.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "delentia-mcp",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "transport": {
         "type": "stdio"
       }

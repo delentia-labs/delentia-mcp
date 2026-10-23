@@ -39,9 +39,24 @@ Run a normal day of work, read the log, adjust the policy, then drop `--monitor`
 ## Policies
 
 - `policies/coding-agent.json` — starter policy for filesystem / git / GitHub / shell servers: reads
-  allowed; writes allowed except to `.env`, keys, `.ssh/`, `.git/` internals and system paths;
-  delete / drop / reset / push / merge and shell execution blocked; **anything not listed is
-  blocked** (zero trust).
+  allowed **except files that hold secrets** (`.env` files, private keys, credential files, system
+  password files: reading one is how it leaves the machine); writes allowed except to the same
+  secrets, `.git/` internals, system paths and the files that run code by themselves (CI workflows,
+  shell start-up files, package-manager configs); delete / drop / reset / push / merge and shell
+  execution blocked; **anything not listed is blocked** (zero trust). (Until Round 91 reads of
+  secrets and writes to CI/shell start-up files were allowed: found by running hostile calls
+  through the policy, `scripts/measure_guard_bypass_r91.mjs` in the workspace.)
+- **What the path rules read.** A rule's `denied_paths` are matched against the call's arguments,
+  but not against the text a call *writes*: when a call also names a path, fields such as
+  `content`, `text`, `new_str` and `patch` are left out, so a README that says "copy `.env.example`
+  to `.env`" is no longer refused. The audit hash and the protection of the guard's own key and log
+  still cover every byte of the arguments. A call whose only argument is content-like is read whole.
+- **Where a "read" tool may send things (`--allow-hosts`).** `fetch` is a read, so by default it can
+  carry what was read to any address. `--allow-hosts docs.example.org,github.com` refuses any call
+  that names an http(s) address on another host (subdomains of a listed host are fine; an address
+  that cannot be parsed is refused; with `--monitor` it is logged as `would_block`). Off when omitted.
+  It looks at addresses written in the arguments; it does not stop a server from following redirects
+  or from being told to look something up by name.
 - Without `--policy`, the built-in default policy is used (stricter; blocks most write tools).
 - `--map upstream_tool=policy_action` reuses a rule for a differently named tool.
 
