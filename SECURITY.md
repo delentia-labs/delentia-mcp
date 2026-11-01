@@ -4,9 +4,9 @@
 
 Please do not open a public GitHub issue for a security problem.
 
-Email **security@delentia.com** (copy **founder@delentia.com** if you do not get an acknowledgement). Include what you found, the steps to reproduce it (request payloads, the endpoint or tool, what you observed) and what you think the impact is.
+Report it **privately through GitHub**: [Report a vulnerability](https://github.com/delentia-labs/delentia-mcp/security/advisories/new) (the Security tab of this repository). There is **no monitored security mailbox yet**, so please do not rely on email; if you cannot use GitHub, open a public issue that says only "I have a security report, please tell me how to send it" and put no details in it. Include what you found, the steps to reproduce it (request payloads, the endpoint or tool, what you observed) and what you think the impact is.
 
-We aim to acknowledge a report within 48 hours. This is a very small team, so please treat that as a goal and not as a guarantee. We will tell you what we find and credit you if you wish.
+This project has one maintainer: we aim to acknowledge a report within 7 days and to fix critical issues within 30 days. Please treat that as a goal and not as a guarantee. We will tell you what we find and credit you if you wish.
 
 ## What is in scope
 
