@@ -6,7 +6,6 @@
 ### Advisory policy-check, reasoning-checklist and context-compression tools for MCP agents, plus a pointer to Delentia Guard (the enforcing proxy)
 
 [![Release](https://img.shields.io/github/v/release/delentia-labs/delentia-mcp?color=brightgreen)](https://github.com/delentia-labs/delentia-mcp/releases)
-[![Smithery listing](https://img.shields.io/badge/Smithery-listed-lightgrey)](https://smithery.ai/servers/delentia/delentia-sovereign)
 [![Edge Health Check](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml/badge.svg)](https://github.com/delentia-labs/delentia-mcp/actions/workflows/healthcheck.yml)
 [![MCP Protocol](https://img.shields.io/badge/MCP%20Protocol-2024--11--05-blue)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange)](./LICENSE)
@@ -143,13 +142,13 @@ curl -X POST https://delentia-sovereign-mcp.delentia.workers.dev/mcp \
 
 | Marketplace / Directory | Status | Official Live Listing Link |
 | :--- | :---: | :--- |
-| **Smithery.ai** | **Published** | [smithery.ai/servers/delentia/delentia-sovereign](https://smithery.ai/servers/delentia/delentia-sovereign) |
 | **Glama.ai** | **Published** | [glama.ai/mcp/servers/delentia-labs/delentia-mcp](https://glama.ai/mcp/servers/delentia-labs/delentia-mcp) |
-| **Official MCP Registry** | **Published** | [registry.modelcontextprotocol.io/?q=delentia](https://registry.modelcontextprotocol.io/?q=delentia) |
-| **MCPize** | **Published** | [mcpize.com/mcp/delentia-mcp](https://mcpize.com/mcp/delentia-mcp) |
+| **Official MCP Registry** | **Published** (latest 2.1.2) | [registry.modelcontextprotocol.io/?q=delentia](https://registry.modelcontextprotocol.io/?q=delentia) |
+| **MCPize** | **Published** (its description is older than this README and is being corrected) | [mcpize.com/mcp/delentia-mcp](https://mcpize.com/mcp/delentia-mcp) |
 | **Zuplo Developer Portal** | **Published** | [delentia-gateway-main-c7624a5.zuplo.site/introduction](https://delentia-gateway-main-c7624a5.zuplo.site/introduction) |
-| **PulseMCP** | **Auto-Syncing** | Synced via Official MCP Registry Index |
-| **Awesome MCP Servers** | **PR Submitted (Pending Merge)** | [github.com/punkpeye/awesome-mcp-servers/pull/13430](https://github.com/punkpeye/awesome-mcp-servers/pull/13430) |
+| **PulseMCP** | **Not listed** (it has paused new submissions; searched 2026-11-02) | n/a |
+| **Awesome MCP Servers** | **Pull request open** (conflict resolved 2026-11-02, waiting for a maintainer) | [github.com/punkpeye/awesome-mcp-servers/pull/13430](https://github.com/punkpeye/awesome-mcp-servers/pull/13430) |
+| Smithery | Closed: the service shut down on 2026-10-31, so there is no listing | n/a |
 | **MCP Market (CherryHQ)** | **Issue Submitted (Pending Review)** | [github.com/CherryHQ/mcpmarket/issues/51](https://github.com/CherryHQ/mcpmarket/issues/51) |
 
 ---
